@@ -30,6 +30,16 @@ ALLOWED_REDIRECT_FIELDS = {
     'is_permanent',
     'is_active',
     'priority',
+    'is_template',
+    'host',
+    'content_type',
+}
+
+# Fields allowed in update_redirect_site.
+ALLOWED_REDIRECT_SITE_FIELDS = {
+    'host',
+    'main_site',
+    'is_enabled',
 }
 
 # Fields allowed in page proposals — SEO + content. `slug` excluded (renames URL).
@@ -87,11 +97,6 @@ def update_category(
     return client.patch(f'/api/product-categories/{category_id}/', json=fields)
 
 
-def list_redirect_sites(client: QsaleClient) -> list[dict[str, Any]]:
-    rows = client.get('/api/redirect-sites/')
-    return rows or []
-
-
 def list_redirects(
     client: QsaleClient,
     site_id: str | None = None,
@@ -113,16 +118,56 @@ def create_redirect(
     target_url: str,
     is_permanent: bool = True,
     priority: int = 0,
+    is_template: bool = False,
+    host: str | None = None,
+    content_type: str | None = None,
 ) -> dict[str, Any]:
-    body = {
+    body: dict[str, Any] = {
         'site': site_id,
         'url': url,
         'target_url': target_url,
         'is_permanent': is_permanent,
         'priority': priority,
         'is_active': True,
+        'is_template': is_template,
     }
+    if host is not None:
+        body['host'] = host
+    if content_type is not None:
+        body['content_type'] = content_type
     return client.post('/api/url-redirects/', json=body)
+
+
+def list_redirect_sites(client: QsaleClient) -> list[dict[str, Any]]:
+    rows = client.get('/api/redirect-sites/')
+    return rows or []
+
+
+def create_redirect_site(
+    client: QsaleClient,
+    host: str,
+    main_site: str | None = None,
+    is_enabled: bool = True,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        'host': host,
+        'main_site': main_site,
+        'is_enabled': is_enabled,
+    }
+    return client.post('/api/redirect-sites/', json=body)
+
+
+def update_redirect_site(
+    client: QsaleClient,
+    site_id: str,
+    fields: dict[str, Any],
+) -> dict[str, Any]:
+    bad = set(fields) - ALLOWED_REDIRECT_SITE_FIELDS
+    if bad:
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_REDIRECT_SITE_FIELDS)}')
+    if not fields:
+        raise ValueError('fields must not be empty')
+    return client.patch(f'/api/redirect-sites/{site_id}/', json=fields)
 
 
 def update_redirect(

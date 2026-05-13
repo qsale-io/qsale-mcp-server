@@ -86,6 +86,9 @@ def create_redirect(
     target_url: str,
     is_permanent: bool = True,
     priority: int = 0,
+    is_template: bool = False,
+    host: str | None = None,
+    content_type: str | None = None,
 ) -> dict[str, Any]:
     """Create one UrlRedirect.
 
@@ -93,17 +96,45 @@ def create_redirect(
     url:     source path with trailing slash, e.g. '/tours/europe/turkey/'.
     target_url: destination path with trailing slash.
     is_permanent: True → 301, False → 302.
+    is_template: True → url uses {NAME}/{NAME*} placeholders (frontend
+                 builds a regex and substitutes captured values in
+                 target_url). False → exact-string match.
+    host:        Restrict the rule to this hostname; None → applies to
+                 all hosts registered for the company.
+    content_type: Optional semantic hint (e.g. 'catalog.productcategory').
     """
-    return t.create_redirect(_c(), site_id, url, target_url, is_permanent, priority)
+    return t.create_redirect(
+        _c(), site_id, url, target_url,
+        is_permanent=is_permanent, priority=priority,
+        is_template=is_template, host=host, content_type=content_type,
+    )
 
 
 @srv.tool()
 def update_redirect(redirect_id: str, fields: dict[str, Any]) -> dict[str, Any]:
     """PATCH a UrlRedirect.
 
-    Allowed fields: url, target_url, is_permanent, is_active, priority.
+    Allowed fields: url, target_url, is_permanent, is_active, priority,
+    is_template, host, content_type.
     """
     return t.update_redirect(_c(), redirect_id, fields)
+
+
+@srv.tool()
+def create_redirect_site(host: str, main_site: str | None = None, is_enabled: bool = True) -> dict[str, Any]:
+    """Create one RedirectSite for the current tenant.
+
+    host: fully-qualified hostname, no scheme/port (e.g. 'aist.travel').
+    main_site: UUID of an existing root site to make this an alias of.
+    is_enabled: defaults to True.
+    """
+    return t.create_redirect_site(_c(), host, main_site=main_site, is_enabled=is_enabled)
+
+
+@srv.tool()
+def update_redirect_site(site_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """PATCH a RedirectSite. Allowed fields: host, main_site, is_enabled."""
+    return t.update_redirect_site(_c(), site_id, fields)
 
 
 @srv.tool()
