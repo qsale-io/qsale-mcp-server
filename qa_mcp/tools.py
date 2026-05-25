@@ -68,6 +68,24 @@ ALLOWED_PAGE_FIELDS = {
     'body',
 }
 
+# Fields allowed in mail-template create proposals. `images` excluded — images
+# are attached separately via create_mail_template_image (own file upload + FK).
+ALLOWED_MAIL_TEMPLATE_FIELDS = {
+    'name',
+    'category',
+    'promotion',   # Promotion UUID or None — binds PROMOTION_* template vars
+    'subject',
+    'text',        # plain-text body (required by the model)
+    'html',        # optional HTML body
+    'context',     # dict of template-level context overrides
+}
+
+# Minimum fields required to create a MailTemplate.
+REQUIRED_MAIL_TEMPLATE_CREATE_FIELDS = {'name', 'category', 'subject', 'text'}
+
+# Valid MailTemplate.category values (mail.models.MailTemplate.CATEGORIES).
+MAIL_TEMPLATE_CATEGORIES = {'SYSTEM', 'TRANSACTIONAL', 'PROMOTIONAL', 'PERSONAL', 'CUSTOM'}
+
 
 def list_categories(
     client: QsaleClient,
@@ -368,6 +386,114 @@ def apply_navigation_item_create(client: QsaleClient, proposal_id: str) -> dict[
     return client.post('/api/navigation-items/', json=p.fields)
 
 
+def list_mail_templates(
+    client: QsaleClient,
+    category: str | None = None,
+    promotion: str | None = None,
+    promotion_isnull: bool | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List MailTemplate rows (compact). Filter by category, promotion UUID, or
+    promotion_isnull (True → only templates not bound to a promotion).
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if category:
+        params['category'] = category
+    if promotion:
+        params['promotion'] = promotion
+    if promotion_isnull is not None:
+        params['promotion__isnull'] = 'true' if promotion_isnull else 'false'
+    res = client.get('/api/mail-templates/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return [_compact_mail_template(t) for t in (rows or [])]
+
+
+def get_mail_template(client: QsaleClient, template_id: str) -> dict[str, Any]:
+    """Get a full MailTemplate by UUID (incl. subject/text/html/context/images)."""
+    return client.get(f'/api/mail-templates/{template_id}/')
+
+
+def propose_mail_template_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a MailTemplate creation for explicit approval. Does NOT write.
+
+    Required: name, category, subject, text. Optional: html, context (dict),
+    promotion (UUID — enables PROMOTION_NAME/PROMOTION_SINCE/PROMOTION_UNTIL and
+    the trigger-supplied promo_code var). Company is set by the API from the
+    auth header. After the user OKs, call apply_mail_template_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_MAIL_TEMPLATE_FIELDS
+    if bad:
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_MAIL_TEMPLATE_FIELDS)}')
+    missing = REQUIRED_MAIL_TEMPLATE_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+    category = fields.get('category')
+    if category not in MAIL_TEMPLATE_CATEGORIES:
+        raise ValueError(f'category {category!r} invalid. One of: {sorted(MAIL_TEMPLATE_CATEGORIES)}')
+
+    p = proposals.register('mail_template_create', '', fields, {}, reason)
+    return {'proposal_id': p.id, 'reason': reason, 'summary': _summarise_mail_fields(fields)}
+
+
+def apply_mail_template_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged MailTemplate creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'mail_template_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not mail_template_create')
+    return client.post('/api/mail-templates/', json=p.fields)
+
+
+def list_mail_template_images(
+    client: QsaleClient,
+    template: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List MailTemplateImage rows. Filter by template UUID. Template-less rows
+    (template=None on the server) are company-wide shared images (IMAGES_COMMON).
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if template:
+        params['template'] = template
+    res = client.get('/api/mail-template-images/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def create_mail_template_image(
+    client: QsaleClient,
+    template: str,
+    slug: str,
+    image_path: str | None = None,
+    base64_data: str | None = None,
+) -> dict[str, Any]:
+    """Attach an image to a MailTemplate. Reference it in the body as {{ IMAGES.<slug> }}.
+
+    Provide exactly one of image_path (local file, read + base64-encoded here) or
+    base64_data (raw base64 or a full data: URI). Server accepts JPEG/PNG/GIF/WEBP
+    via Base64ImageField. (slug, template, company) is unique — re-using a slug
+    for the same template will be rejected by the API.
+    """
+    if bool(image_path) == bool(base64_data):
+        raise ValueError('provide exactly one of image_path or base64_data')
+    if image_path:
+        import base64
+        import mimetypes
+        import pathlib
+
+        path = pathlib.Path(image_path)
+        raw = path.read_bytes()
+        mime = mimetypes.guess_type(str(path))[0] or 'image/png'
+        file_value = f'data:{mime};base64,{base64.b64encode(raw).decode()}'
+    else:
+        file_value = base64_data
+    body = {'template': template, 'slug': slug, 'file': file_value}
+    return client.post('/api/mail-template-images/', json=body)
+
+
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals (in-memory, lost on server restart)."""
     return [
@@ -412,6 +538,31 @@ def _compact_navigation_item(i: dict[str, Any]) -> dict[str, Any]:
         'has_children': i.get('has_children'),
         'share_path': i.get('share_path'),
     }
+
+
+def _compact_mail_template(t: dict[str, Any]) -> dict[str, Any]:
+    """Trim MailTemplate to list-view essentials; bodies shown as lengths only."""
+    return {
+        'id': t.get('id'),
+        'name': t.get('name'),
+        'category': t.get('category'),
+        'promotion': t.get('promotion'),
+        'subject': t.get('subject'),
+        'text_len': len(t.get('text') or ''),
+        'html_len': len(t.get('html') or ''),
+        'image_slugs': [i.get('slug') for i in (t.get('images') or [])],
+    }
+
+
+def _summarise_mail_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """Render a create-proposal preview without dumping multi-KB html/text bodies."""
+    out: dict[str, Any] = {}
+    for k, v in fields.items():
+        if k in ('html', 'text') and isinstance(v, str):
+            out[k] = f'<{len(v)} chars>'
+        else:
+            out[k] = v
+    return out
 
 
 def _compact_category(c: dict[str, Any]) -> dict[str, Any]:

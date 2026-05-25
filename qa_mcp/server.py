@@ -250,6 +250,80 @@ def apply_navigation_item_create(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
+def list_mail_templates(
+    category: str | None = None,
+    promotion: str | None = None,
+    promotion_isnull: bool | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List MailTemplate rows (compact: bodies shown as lengths, not content).
+
+    Filters:
+      category:        SYSTEM / TRANSACTIONAL / PROMOTIONAL / PERSONAL / CUSTOM.
+      promotion:       Promotion UUID — templates bound to that promotion.
+      promotion_isnull: True → only templates NOT bound to any promotion.
+    """
+    return t.list_mail_templates(
+        _c(), category=category, promotion=promotion, promotion_isnull=promotion_isnull, limit=limit
+    )
+
+
+@srv.tool()
+def get_mail_template(template_id: str) -> dict[str, Any]:
+    """Get a full MailTemplate by UUID (subject, text, html, context, images)."""
+    return t.get_mail_template(_c(), template_id)
+
+
+@srv.tool()
+def propose_mail_template_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a MailTemplate creation for explicit approval. Does NOT write.
+
+    Required fields: name, category, subject, text. Optional: html, context
+    (dict of template-level overrides), promotion (UUID — enables PROMOTION_NAME/
+    PROMOTION_SINCE/PROMOTION_UNTIL and the trigger-supplied promo_code var).
+    Categories: SYSTEM, TRANSACTIONAL, PROMOTIONAL, PERSONAL, CUSTOM.
+
+    Returns proposal_id + a summary (html/text shown as char counts). After the
+    user OKs, call apply_mail_template_create(proposal_id). Company is set by the
+    API from the auth header.
+    """
+    return t.propose_mail_template_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_mail_template_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged MailTemplate creation. Use only after explicit user OK."""
+    return t.apply_mail_template_create(_c(), proposal_id)
+
+
+@srv.tool()
+def list_mail_template_images(template: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    """List MailTemplateImage rows. Filter by template UUID. Server-side
+    template-less rows are company-wide shared images (exposed as IMAGES_COMMON).
+    """
+    return t.list_mail_template_images(_c(), template=template, limit=limit)
+
+
+@srv.tool()
+def create_mail_template_image(
+    template: str,
+    slug: str,
+    image_path: str | None = None,
+    base64_data: str | None = None,
+) -> dict[str, Any]:
+    """Attach an image to a MailTemplate. Reference it in the body via {{ IMAGES.<slug> }}.
+
+    template: MailTemplate UUID. slug: short identifier, unique per template.
+    Provide exactly one of:
+      image_path:  path to a local file (read + base64-encoded here), or
+      base64_data: raw base64 or a full 'data:image/...;base64,...' URI.
+    Accepted types: JPEG, PNG, GIF, WEBP. Direct create (no propose/apply) —
+    narrate intent and get the user's OK before calling.
+    """
+    return t.create_mail_template_image(_c(), template, slug, image_path=image_path, base64_data=base64_data)
+
+
+@srv.tool()
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals in this MCP process. Lost on server restart."""
     return t.list_proposals(kind=kind)
