@@ -42,6 +42,22 @@ ALLOWED_REDIRECT_SITE_FIELDS = {
     'is_enabled',
 }
 
+# Fields allowed in navigation-item create/update proposals.
+ALLOWED_NAVIGATION_ITEM_FIELDS = {
+    'name',
+    'group',            # NavigationGroup UUID
+    'parent',           # parent NavigationItem UUID or None
+    'type',             # ContentItemType: LINK / PAGE / PRODUCT_CATEGORY / ...
+    'value',            # object UUID for content types, external URL for LINK
+    'published',
+    'sort',
+    'is_template',
+    'display_settings',
+}
+
+# Minimum fields required to create a NavigationItem.
+REQUIRED_NAVIGATION_CREATE_FIELDS = {'name', 'group', 'type'}
+
 # Fields allowed in page proposals — SEO + content. `slug` excluded (renames URL).
 ALLOWED_PAGE_FIELDS = {
     'meta_title',
@@ -241,6 +257,117 @@ def apply_page_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
     return client.patch(f'/api/pages/{p.target_id}/', json=p.fields)
 
 
+def list_navigation_groups(
+    client: QsaleClient,
+    slug: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List NavigationGroup rows (menu containers: header, footer, etc.)."""
+    params: dict[str, Any] = {'limit': limit}
+    if slug:
+        params['slug'] = slug
+    res = client.get('/api/navigation-groups/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def list_navigation_items(
+    client: QsaleClient,
+    group: str | None = None,
+    parent: str | None = None,
+    parent_isnull: bool | None = None,
+    type: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List NavigationItem rows. Filter by group UUID, parent UUID, top-level
+    (parent_isnull=True), or content type.
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if group:
+        params['group'] = group
+    if parent:
+        params['parent'] = parent
+    if parent_isnull is not None:
+        params['parent__isnull'] = 'true' if parent_isnull else 'false'
+    if type:
+        params['type'] = type
+    res = client.get('/api/navigation-items/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return [_compact_navigation_item(i) for i in (rows or [])]
+
+
+def get_navigation_item(client: QsaleClient, item_id: str) -> dict[str, Any]:
+    return client.get(f'/api/navigation-items/{item_id}/')
+
+
+def propose_navigation_item_update(
+    client: QsaleClient,
+    item_id: str,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a NavigationItem PATCH for explicit approval. Does NOT write.
+
+    Use `apply_navigation_item_update(proposal_id)` after the user reviews the
+    diff and approves. `value` semantics depend on `type` (see ALLOWED list /
+    list_navigation_items docstring).
+    """
+    bad = set(fields) - ALLOWED_NAVIGATION_ITEM_FIELDS
+    if bad:
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_NAVIGATION_ITEM_FIELDS)}')
+    if not fields:
+        raise ValueError('fields must not be empty')
+
+    current = get_navigation_item(client, item_id)
+    before = {k: current.get(k) for k in fields}
+    p = proposals.register('navigation_item_update', item_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'item_id': item_id,
+        'reason': reason,
+        'changes': [{'field': k, 'before': before[k], 'after': fields[k]} for k in fields],
+    }
+
+
+def apply_navigation_item_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged NavigationItem update. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'navigation_item_update':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not navigation_item_update')
+    return client.patch(f'/api/navigation-items/{p.target_id}/', json=p.fields)
+
+
+def propose_navigation_item_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a NavigationItem creation for explicit approval. Does NOT write.
+
+    Required: name, group (NavigationGroup UUID), type. For content types
+    (PAGE/PRODUCT/PRODUCT_CATEGORY/PROMOTION/SCREEN/OUTLET) pass `value` = the
+    target object UUID. For LINK pass `value` = external URL. `parent` (UUID)
+    nests under an existing item. Company is set by the API from the auth header.
+    """
+    bad = set(fields) - ALLOWED_NAVIGATION_ITEM_FIELDS
+    if bad:
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_NAVIGATION_ITEM_FIELDS)}')
+    missing = REQUIRED_NAVIGATION_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('navigation_item_create', '', fields, {}, reason)
+    return {'proposal_id': p.id, 'reason': reason, 'fields': fields}
+
+
+def apply_navigation_item_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged NavigationItem creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'navigation_item_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not navigation_item_create')
+    return client.post('/api/navigation-items/', json=p.fields)
+
+
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals (in-memory, lost on server restart)."""
     return [
@@ -262,6 +389,28 @@ def _compact_page(p: dict[str, Any]) -> dict[str, Any]:
         'meta_description': p.get('meta_description'),
         'meta_keywords': p.get('meta_keywords'),
         'canonical_url': p.get('canonical_url'),
+    }
+
+
+def _compact_navigation_item(i: dict[str, Any]) -> dict[str, Any]:
+    """Trim NavigationItem to the fields that matter for menu editing.
+
+    For non-LINK types `value` is the UUID of the referenced object
+    (PRODUCT_CATEGORY, PRODUCT, PAGE, PROMOTION, SCREEN, OUTLET). LINK is
+    reserved for external URLs; SEPARATOR carries no value.
+    """
+    return {
+        'id': i.get('id'),
+        'name': i.get('name'),
+        'group': i.get('group'),
+        'parent': i.get('parent'),
+        'type': i.get('type'),
+        'value': i.get('value'),
+        'published': i.get('published'),
+        'sort': i.get('sort'),
+        'is_template': i.get('is_template'),
+        'has_children': i.get('has_children'),
+        'share_path': i.get('share_path'),
     }
 
 

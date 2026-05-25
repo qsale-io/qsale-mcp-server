@@ -169,6 +169,87 @@ def apply_page_update(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
+def list_navigation_groups(slug: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    """List NavigationGroup menu containers (header, footer, bottom-bar, …).
+
+    Filter by `slug`. Returns id, slug, name, client_types, sort, employee_roles.
+    """
+    return t.list_navigation_groups(_c(), slug=slug, limit=limit)
+
+
+@srv.tool()
+def list_navigation_items(
+    group: str | None = None,
+    parent: str | None = None,
+    parent_isnull: bool | None = None,
+    type: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List NavigationItem menu entries (compact view).
+
+    Filters:
+      group:        NavigationGroup UUID (get from list_navigation_groups).
+      parent:       parent NavigationItem UUID (children of a submenu).
+      parent_isnull: True → only top-level items; False → only nested.
+      type:         one of LINK, PAGE, PRODUCT, PRODUCT_CATEGORY, PROMOTION,
+                    LANDING, OUTLET, BANNER_GROUP, SCREEN, SEPARATOR, WEBVIEW.
+
+    `value` semantics: for content types (PAGE/PRODUCT/PRODUCT_CATEGORY/
+    PROMOTION/SCREEN/OUTLET) it is the UUID of the referenced object. LINK is
+    only for external URLs; SEPARATOR has no value.
+    """
+    return t.list_navigation_items(
+        _c(), group=group, parent=parent, parent_isnull=parent_isnull, type=type, limit=limit
+    )
+
+
+@srv.tool()
+def get_navigation_item(item_id: str) -> dict[str, Any]:
+    """Get a single NavigationItem by UUID (full record incl. display_settings)."""
+    return t.get_navigation_item(_c(), item_id)
+
+
+@srv.tool()
+def propose_navigation_item_update(item_id: str, fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a NavigationItem patch for explicit approval. Does NOT write.
+
+    Returns proposal_id + per-field before/after diff. After the user OKs,
+    call apply_navigation_item_update(proposal_id).
+
+    Allowed fields: name, group, parent, type, value, published, sort,
+    is_template, display_settings. To turn a broken LINK section-header into a
+    non-clickable separator: {"type": "SEPARATOR", "value": ""}.
+    """
+    return t.propose_navigation_item_update(_c(), item_id, fields, reason)
+
+
+@srv.tool()
+def apply_navigation_item_update(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged NavigationItem update. Use only after explicit user OK."""
+    return t.apply_navigation_item_update(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_navigation_item_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a NavigationItem creation for explicit approval. Does NOT write.
+
+    Required fields: name, group (NavigationGroup UUID), type. For content
+    types (PAGE/PRODUCT/PRODUCT_CATEGORY/PROMOTION/SCREEN/OUTLET) pass
+    value=<target object UUID>; for LINK pass value=<external URL>. Optional:
+    parent (UUID to nest), published, sort, is_template, display_settings.
+
+    After the user OKs, call apply_navigation_item_create(proposal_id).
+    """
+    return t.propose_navigation_item_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_navigation_item_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged NavigationItem creation. Use only after explicit user OK."""
+    return t.apply_navigation_item_create(_c(), proposal_id)
+
+
+@srv.tool()
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals in this MCP process. Lost on server restart."""
     return t.list_proposals(kind=kind)
