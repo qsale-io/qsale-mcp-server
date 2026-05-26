@@ -86,6 +86,20 @@ REQUIRED_MAIL_TEMPLATE_CREATE_FIELDS = {'name', 'category', 'subject', 'text'}
 # Valid MailTemplate.category values (mail.models.MailTemplate.CATEGORIES).
 MAIL_TEMPLATE_CATEGORIES = {'SYSTEM', 'TRANSACTIONAL', 'PROMOTIONAL', 'PERSONAL', 'CUSTOM'}
 
+# Fields allowed in promotion-trigger create proposals.
+ALLOWED_PROMOTION_TRIGGER_FIELDS = {
+    'name',
+    'promotion',       # Promotion UUID (required for code generation / PROMOTION_* vars)
+    'category',        # e.g. REGISTRATION / BIRTHDAY / PURCHASE / ORDER_DONE / ...
+    'mail_template',   # MailTemplate UUID (nullable)
+    'sms_template',    # ShortMessageTemplate UUID (nullable)
+    'push_template',   # PushTemplate UUID (nullable)
+    'values',          # dict matching the category's field definitions
+}
+
+# Minimum fields required to create a PromotionTrigger (per WritePromotionTriggerSerializer).
+REQUIRED_PROMOTION_TRIGGER_CREATE_FIELDS = {'category', 'values'}
+
 
 def list_categories(
     client: QsaleClient,
@@ -494,6 +508,81 @@ def create_mail_template_image(
     return client.post('/api/mail-template-images/', json=body)
 
 
+def list_trigger_categories(client: QsaleClient) -> list[dict[str, Any]]:
+    """List all promotion-trigger categories and their configurable fields
+    (metadata from /api/triggers/). Use to discover valid `category` + `values`
+    keys before create.
+    """
+    res = client.get('/api/triggers/')
+    rows = res.get('promotion', []) if isinstance(res, dict) else (res or [])
+    return [{'category': r.get('category'), 'fields': sorted((r.get('fields') or {}).keys())} for r in rows]
+
+
+def list_promotion_triggers(
+    client: QsaleClient,
+    promotion: str | None = None,
+    promotion_isnull: bool | None = None,
+    category: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List PromotionTrigger rows (compact). Filter by promotion UUID,
+    promotion_isnull, and/or category (category filtered client-side).
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if promotion:
+        params['promotion'] = promotion
+    if promotion_isnull is not None:
+        params['promotion__isnull'] = 'true' if promotion_isnull else 'false'
+    res = client.get('/api/promotions-triggers/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    rows = rows or []
+    if category:
+        rows = [r for r in rows if r.get('category') == category]
+    return [_compact_promotion_trigger(t) for t in rows]
+
+
+def get_promotion_trigger(client: QsaleClient, trigger_id: str) -> dict[str, Any]:
+    """Get a single PromotionTrigger by UUID (full record incl. values + templates)."""
+    return client.get(f'/api/promotions-triggers/{trigger_id}/')
+
+
+def propose_promotion_trigger_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a PromotionTrigger creation for explicit approval. Does NOT write.
+
+    Required: category, values (dict matching the category's field definitions —
+    see list_trigger_categories; missing keys fall back to per-field defaults
+    server-side). Optional: name, promotion (UUID), mail_template/sms_template/
+    push_template (UUIDs). To create dormant, pass values={'enabled': False, ...}.
+    The API rejects a duplicate (promotion, category) pair. After the user OKs,
+    call apply_promotion_trigger_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_PROMOTION_TRIGGER_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_PROMOTION_TRIGGER_FIELDS)}'
+        )
+    missing = REQUIRED_PROMOTION_TRIGGER_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+    if not isinstance(fields.get('values'), dict):
+        raise ValueError("'values' must be a dict matching the category's field definitions")
+
+    p = proposals.register('promotion_trigger_create', '', fields, {}, reason)
+    return {'proposal_id': p.id, 'reason': reason, 'fields': fields}
+
+
+def apply_promotion_trigger_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged PromotionTrigger creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'promotion_trigger_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not promotion_trigger_create')
+    return client.post('/api/promotions-triggers/', json=p.fields)
+
+
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals (in-memory, lost on server restart)."""
     return [
@@ -551,6 +640,20 @@ def _compact_mail_template(t: dict[str, Any]) -> dict[str, Any]:
         'text_len': len(t.get('text') or ''),
         'html_len': len(t.get('html') or ''),
         'image_slugs': [i.get('slug') for i in (t.get('images') or [])],
+    }
+
+
+def _compact_promotion_trigger(t: dict[str, Any]) -> dict[str, Any]:
+    """Trim PromotionTrigger to list-view essentials."""
+    trig = t.get('trigger') or {}
+    return {
+        'id': t.get('id'),
+        'name': t.get('name'),
+        'category': t.get('category') or trig.get('category'),
+        'promotion': t.get('promotion'),
+        'mail_template': t.get('mail_template', {}).get('id') if isinstance(t.get('mail_template'), dict) else t.get('mail_template'),
+        'sms_template': t.get('sms_template', {}).get('id') if isinstance(t.get('sms_template'), dict) else t.get('sms_template'),
+        'values': t.get('values'),
     }
 
 

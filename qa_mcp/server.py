@@ -324,6 +324,55 @@ def create_mail_template_image(
 
 
 @srv.tool()
+def list_trigger_categories() -> list[dict[str, Any]]:
+    """List promotion-trigger categories and their configurable field names
+    (from /api/triggers/). Use to discover valid `category` + `values` keys.
+    """
+    return t.list_trigger_categories(_c())
+
+
+@srv.tool()
+def list_promotion_triggers(
+    promotion: str | None = None,
+    promotion_isnull: bool | None = None,
+    category: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List PromotionTrigger rows (compact). Filter by promotion UUID,
+    promotion_isnull (True → triggers not bound to a promotion), or category.
+    """
+    return t.list_promotion_triggers(
+        _c(), promotion=promotion, promotion_isnull=promotion_isnull, category=category, limit=limit
+    )
+
+
+@srv.tool()
+def get_promotion_trigger(trigger_id: str) -> dict[str, Any]:
+    """Get a single PromotionTrigger by UUID (full record incl. values + templates)."""
+    return t.get_promotion_trigger(_c(), trigger_id)
+
+
+@srv.tool()
+def propose_promotion_trigger_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a PromotionTrigger creation for explicit approval. Does NOT write.
+
+    Required: category, values (dict matching the category's fields — see
+    list_trigger_categories; omitted keys fall back to server defaults).
+    Optional: name, promotion (UUID), mail_template/sms_template/push_template
+    (UUIDs). Pass values={'enabled': False, ...} to create dormant. The API
+    rejects a duplicate (promotion, category). After the user OKs, call
+    apply_promotion_trigger_create(proposal_id).
+    """
+    return t.propose_promotion_trigger_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_promotion_trigger_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged PromotionTrigger creation. Use only after explicit user OK."""
+    return t.apply_promotion_trigger_create(_c(), proposal_id)
+
+
+@srv.tool()
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals in this MCP process. Lost on server restart."""
     return t.list_proposals(kind=kind)
