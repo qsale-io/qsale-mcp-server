@@ -64,6 +64,24 @@ class QsaleClient:
     def patch(self, path: str, json: Any = None, **kwargs) -> Any:
         return self.request('PATCH', path, json=json, **kwargs)
 
+    def patch_file(self, path: str, field: str, file_path: str, content_type: str | None = None) -> Any:
+        """PATCH a multipart file upload (single field). Used for file-typed frontend settings."""
+        import mimetypes
+        import pathlib
+
+        p = pathlib.Path(file_path)
+        ct = content_type or mimetypes.guess_type(str(p))[0] or 'application/octet-stream'
+        with p.open('rb') as fh:
+            r = self._http.patch(path, files={field: (p.name, fh, ct)})
+        if r.status_code >= 400:
+            raise QsaleError(r.status_code, r.text, 'PATCH', path)
+        if not r.content:
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            return r.text
+
     def put(self, path: str, json: Any = None, **kwargs) -> Any:
         return self.request('PUT', path, json=json, **kwargs)
 

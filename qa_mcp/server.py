@@ -373,6 +373,37 @@ def apply_promotion_trigger_create(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
+def list_frontend_settings() -> list[dict[str, Any]]:
+    """List company frontend settings (flattened: group, key, type, name, value).
+    Use the returned `key` with get_frontend_setting / update_frontend_setting_json /
+    set_frontend_setting_file.
+    """
+    return t.list_frontend_settings(_c())
+
+
+@srv.tool()
+def get_frontend_setting(key: str) -> dict[str, Any]:
+    """Get one frontend setting by key (incl. setting_type, schema, current value)."""
+    return t.get_frontend_setting(_c(), key)
+
+
+@srv.tool()
+def update_frontend_setting_json(key: str, value: Any) -> dict[str, Any]:
+    """Update a json-typed frontend setting. Server validates `value` against the
+    setting's JSON schema. Use only after explicit user OK — writes immediately.
+    """
+    return t.update_frontend_setting_json(_c(), key, value)
+
+
+@srv.tool()
+def set_frontend_setting_file(key: str, file_path: str) -> dict[str, Any]:
+    """Replace a file-typed frontend setting (e.g. logo_for_emails) by uploading a
+    local file (multipart). Use only after explicit user OK — writes immediately.
+    """
+    return t.set_frontend_setting_file(_c(), key, file_path)
+
+
+@srv.tool()
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals in this MCP process. Lost on server restart."""
     return t.list_proposals(kind=kind)

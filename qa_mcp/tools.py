@@ -583,6 +583,49 @@ def apply_promotion_trigger_create(client: QsaleClient, proposal_id: str) -> dic
     return client.post('/api/promotions-triggers/', json=p.fields)
 
 
+def list_frontend_settings(client: QsaleClient) -> list[dict[str, Any]]:
+    """List company frontend settings (flattened: group, key, type, name, value).
+
+    `value` is the current value (string/URL for file-typed, JSON for json-typed).
+    Use the `key` with get/update tools.
+    """
+    res = client.get('/api/frontend-settings/')
+    groups = res if isinstance(res, list) else (res.get('results', []) if isinstance(res, dict) else [])
+    out: list[dict[str, Any]] = []
+    for grp in groups:
+        for s in grp.get('settings', []) or []:
+            out.append(
+                {
+                    'group': grp.get('name'),
+                    'key': s.get('key'),
+                    'type': s.get('setting_type'),
+                    'name': s.get('name'),
+                    'value': s.get('value'),
+                }
+            )
+    return out
+
+
+def get_frontend_setting(client: QsaleClient, key: str) -> dict[str, Any]:
+    """Get one frontend setting by key (id, key, setting_type, name, schema, value)."""
+    return client.get(f'/api/frontend-settings/{key}/')
+
+
+def update_frontend_setting_json(client: QsaleClient, key: str, value: Any) -> dict[str, Any]:
+    """Update a json-typed frontend setting. Server validates `value` against the
+    setting's JSON schema (use get_frontend_setting to see it). Narrate intent and
+    get the user's OK before calling — this writes to the tenant immediately.
+    """
+    return client.patch(f'/api/frontend-settings/{key}/json/', json={'value': value})
+
+
+def set_frontend_setting_file(client: QsaleClient, key: str, file_path: str) -> dict[str, Any]:
+    """Replace a file-typed frontend setting (e.g. logo_for_emails) by uploading a
+    local file. Direct write — narrate intent and get the user's OK before calling.
+    """
+    return client.patch_file(f'/api/frontend-settings/{key}/file/', 'value', file_path)
+
+
 def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals (in-memory, lost on server restart)."""
     return [
