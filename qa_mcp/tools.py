@@ -461,6 +461,54 @@ def apply_mail_template_create(client: QsaleClient, proposal_id: str) -> dict[st
     return client.post('/api/mail-templates/', json=p.fields)
 
 
+def propose_mail_template_update(
+    client: QsaleClient,
+    template_id: str,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a MailTemplate PATCH for explicit approval. Does NOT write.
+
+    Editable fields: name, category, promotion, subject, text, html, context.
+    `category`, if given, must be a valid MailTemplate category. Bodies (html/text)
+    are shown as char-counts in the diff, not dumped. After the user OKs, call
+    apply_mail_template_update(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_MAIL_TEMPLATE_FIELDS
+    if bad:
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_MAIL_TEMPLATE_FIELDS)}')
+    if not fields:
+        raise ValueError('fields must not be empty')
+    if 'category' in fields and fields['category'] not in MAIL_TEMPLATE_CATEGORIES:
+        raise ValueError(f'category {fields["category"]!r} invalid. One of: {sorted(MAIL_TEMPLATE_CATEGORIES)}')
+
+    current = get_mail_template(client, template_id)
+    before = {k: current.get(k) for k in fields}
+
+    p = proposals.register('mail_template_update', template_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'template_id': template_id,
+        'reason': reason,
+        'changes': [
+            {
+                'field': k,
+                'before': _summarise_mail_fields({k: before[k]})[k],
+                'after': _summarise_mail_fields({k: fields[k]})[k],
+            }
+            for k in fields
+        ],
+    }
+
+
+def apply_mail_template_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged MailTemplate update. Single-use — proposal is consumed."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'mail_template_update':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not mail_template_update')
+    return client.patch(f'/api/mail-templates/{p.target_id}/', json=p.fields)
+
+
 def list_mail_template_images(
     client: QsaleClient,
     template: str | None = None,

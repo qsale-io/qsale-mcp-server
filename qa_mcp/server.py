@@ -297,6 +297,26 @@ def apply_mail_template_create(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
+def propose_mail_template_update(template_id: str, fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a MailTemplate PATCH for explicit approval. Does NOT write.
+
+    Editable fields: name, category, promotion, subject, text, html, context.
+    Partial — only the keys you pass are changed; omit the rest. Use this to fix
+    CTA links, swap logo vars, etc. in existing templates without re-creating them.
+
+    Returns proposal_id + a diff (html/text shown as char counts). After the user
+    OKs, call apply_mail_template_update(proposal_id).
+    """
+    return t.propose_mail_template_update(_c(), template_id, fields, reason)
+
+
+@srv.tool()
+def apply_mail_template_update(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged MailTemplate update. Use only after explicit user OK."""
+    return t.apply_mail_template_update(_c(), proposal_id)
+
+
+@srv.tool()
 def list_mail_template_images(template: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
     """List MailTemplateImage rows. Filter by template UUID. Server-side
     template-less rows are company-wide shared images (exposed as IMAGES_COMMON).
