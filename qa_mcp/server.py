@@ -429,6 +429,425 @@ def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     return t.list_proposals(kind=kind)
 
 
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — Dictionaries
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def list_dictionaries(limit: int = 200) -> list[dict[str, Any]]:
+    """List Dictionary rows for the current tenant."""
+    return t.list_dictionaries(_c(), limit=limit)
+
+
+@srv.tool()
+def get_dictionary(dictionary_id: str) -> dict[str, Any]:
+    """Get a single Dictionary by UUID (incl. allowed_segment_models)."""
+    return t.get_dictionary(_c(), dictionary_id)
+
+
+@srv.tool()
+def list_dictionary_items(
+    dictionary_id: str | None = None,
+    search: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List DictionaryItem rows (compact). Filter by dictionary UUID and/or search.
+
+    dictionary_id: restrict to items belonging to this dictionary.
+    search: substring match on item name.
+    """
+    return t.list_dictionary_items(_c(), dictionary_id=dictionary_id, search=search, limit=limit)
+
+
+@srv.tool()
+def get_dictionary_item(item_id: str) -> dict[str, Any]:
+    """Get a single DictionaryItem by UUID (full record incl. data, segments)."""
+    return t.get_dictionary_item(_c(), item_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — Segments
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def list_segments(
+    model_id: str | None = None,
+    search: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List Segment rows (compact). Filter by model UUID and/or search string.
+
+    model_id: SegmentModel UUID (get from list_segment_properties).
+    search: substring match on segment name.
+    """
+    return t.list_segments(_c(), model_id=model_id, search=search, limit=limit)
+
+
+@srv.tool()
+def get_segment(segment_id: str) -> dict[str, Any]:
+    """Get a single Segment by UUID (full record incl. filters, count)."""
+    return t.get_segment(_c(), segment_id)
+
+
+@srv.tool()
+def list_segment_properties(model_id: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    """List SegmentProperty rows. Filter by model UUID.
+
+    Use to discover valid property UUIDs and their allowed operator types
+    before calling propose_segment_filter_create.
+    """
+    return t.list_segment_properties(_c(), model_id=model_id, limit=limit)
+
+
+@srv.tool()
+def get_segment_property(property_id: str) -> dict[str, Any]:
+    """Get a single SegmentProperty by UUID (incl. allowed operators)."""
+    return t.get_segment_property(_c(), property_id)
+
+
+@srv.tool()
+def list_segment_filters(segment_id: str | None = None) -> list[dict[str, Any]]:
+    """List SegmentFilter rows. Filter by segment UUID.
+
+    Uses the NEW GET /api/segment-filters/ endpoint on qa-server (branch
+    feat/qsale-24-mcp-catalog-api). Each filter shows: id, segment, property,
+    operator, value, count, data, exclude.
+    """
+    return t.list_segment_filters(_c(), segment_id=segment_id)
+
+
+@srv.tool()
+def get_segment_filter(filter_id: str) -> dict[str, Any]:
+    """Get a single SegmentFilter by UUID.
+
+    Uses the NEW GET /api/segment-filters/{id}/ endpoint on qa-server.
+    """
+    return t.get_segment_filter(_c(), filter_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — M2M list views (NEW endpoints)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def list_pc_segments(category_id: str) -> list[dict[str, Any]]:
+    """List Segments linked to a ProductCategory.
+
+    Uses the NEW GET /api/product-categories/{id}/segments/ endpoint.
+    Each row: {id, model, name, count}.
+    """
+    return t.list_pc_segments(_c(), category_id)
+
+
+@srv.tool()
+def list_di_segments(dictionary_item_id: str) -> list[dict[str, Any]]:
+    """List Segments linked to a DictionaryItem.
+
+    Uses the NEW GET /api/dictionary-items/{id}/segments/ endpoint.
+    Each row: {id, model, name, count}.
+    """
+    return t.list_di_segments(_c(), dictionary_item_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-2 Category write tools (propose/apply)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_category_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a ProductCategory creation for explicit approval. Does NOT write.
+
+    Required fields: name, slug. Optional: parent (UUID — nest under an existing
+    category; null for root), title, description, meta_title, meta_description,
+    group (ProductCategoryGroup UUID). Company is set by the API from the auth
+    header. Returns proposal_id + after-state summary. After the user OKs, call
+    apply_category_create(proposal_id).
+    """
+    return t.propose_category_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_category_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged ProductCategory creation. Use only after explicit user OK."""
+    return t.apply_category_create(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-2 DictionaryItem write tools (propose/apply)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_dictionary_item_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a DictionaryItem creation for explicit approval. Does NOT write.
+
+    Required fields: dictionary (UUID), name. Optional: data (dict — e.g.
+    {\"sletat_id\": 12345}), description, sort (int, default 0). Company inherited
+    from the dictionary. Returns proposal_id + after-state summary. After the
+    user OKs, call apply_dictionary_item_create(proposal_id).
+    """
+    return t.propose_dictionary_item_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_dictionary_item_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged DictionaryItem creation. Use only after explicit user OK."""
+    return t.apply_dictionary_item_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_dictionary_item_delete(item_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a DictionaryItem deletion for explicit approval. Does NOT write.
+
+    Fetches current state (name + dictionary) for a before-state diff. API 400
+    (item in use / protected FK) is proxied when apply is called. After the user
+    OKs, call apply_dictionary_item_delete(proposal_id).
+    """
+    return t.propose_dictionary_item_delete(_c(), item_id, reason)
+
+
+@srv.tool()
+def apply_dictionary_item_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged DictionaryItem deletion. Use only after explicit user OK."""
+    return t.apply_dictionary_item_delete(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-3 Segment write tools (propose/apply)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_segment_create(model_id: str, name: str, reason: str = '') -> dict[str, Any]:
+    """Stage a Segment creation for explicit approval. Does NOT write.
+
+    model_id: SegmentModel UUID (e.g. the product segment model — get from
+    list_segment_properties). name: human-readable label (e.g. 'ResortId — Kemer A').
+    After the user OKs, call apply_segment_create(proposal_id).
+    """
+    return t.propose_segment_create(_c(), model_id, name, reason)
+
+
+@srv.tool()
+def apply_segment_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Segment creation. Use only after explicit user OK."""
+    return t.apply_segment_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_delete(segment_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a Segment deletion for explicit approval. Does NOT write.
+
+    Fetches the segment (name + filter count) and shows a warning. API 400
+    (segment not deletable) is proxied when apply is called. After the user OKs,
+    call apply_segment_delete(proposal_id).
+    """
+    return t.propose_segment_delete(_c(), segment_id, reason)
+
+
+@srv.tool()
+def apply_segment_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Segment deletion. Use only after explicit user OK."""
+    return t.apply_segment_delete(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-3 SegmentFilter write tools (propose/apply)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_segment_filter_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentFilter creation for explicit approval. Does NOT write.
+
+    Required fields: segment (UUID), property (UUID), operator (IN/NOT_IN/EQ/
+    GTE/LTE/…), value (list for IN/NOT_IN, scalar for others). Optional: exclude
+    (bool, default False), data (dict). Use get_segment_property to check allowed
+    operators for the property type. Server validates compatibility; 400 proxied.
+    After the user OKs, call apply_segment_filter_create(proposal_id).
+    """
+    return t.propose_segment_filter_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_segment_filter_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentFilter creation. Use only after explicit user OK."""
+    return t.apply_segment_filter_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_filter_update(filter_id: str, value: Any, reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentFilter value update for explicit approval. Does NOT write.
+
+    Fetches the current filter (via NEW endpoint) to build a before/after diff.
+    `value`: list for IN/NOT_IN operators (e.g. [12345, 67890] for Sletat resort
+    IDs), scalar for EQ/GTE/LTE. After the user OKs, call
+    apply_segment_filter_update(proposal_id).
+    """
+    return t.propose_segment_filter_update(_c(), filter_id, value, reason)
+
+
+@srv.tool()
+def apply_segment_filter_update(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentFilter update. Use only after explicit user OK."""
+    return t.apply_segment_filter_update(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_filter_delete(filter_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentFilter deletion for explicit approval. Does NOT write.
+
+    Fetches current filter state for the before-state diff. After the user OKs,
+    call apply_segment_filter_delete(proposal_id).
+    """
+    return t.propose_segment_filter_delete(_c(), filter_id, reason)
+
+
+@srv.tool()
+def apply_segment_filter_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentFilter deletion. Use only after explicit user OK."""
+    return t.apply_segment_filter_delete(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-4 M2M link/unlink tools — DictionaryItem ↔ Segment
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_link_di_segment(
+    dictionary_item_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem ↔ Segment link for explicit approval. Does NOT write.
+
+    Server validates that segment.model is in dictionary.allowed_segment_models;
+    400 proxied. After the user OKs, call apply_link_di_segment(proposal_id).
+    """
+    return t.propose_link_di_segment(_c(), dictionary_item_id, segment_id, reason)
+
+
+@srv.tool()
+def apply_link_di_segment(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged DI↔Segment link. Use only after explicit user OK.
+
+    Returns 201 {status: 'linked'} on success, 200 {status: 'already_linked'} if
+    the link already exists (ADR-2).
+    """
+    return t.apply_link_di_segment(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_unlink_di_segment(
+    dictionary_item_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem ↔ Segment unlink for explicit approval. Does NOT write.
+
+    Fetches current linked segments to confirm the link exists (before-state diff).
+    After the user OKs, call apply_unlink_di_segment(proposal_id).
+    """
+    return t.propose_unlink_di_segment(_c(), dictionary_item_id, segment_id, reason)
+
+
+@srv.tool()
+def apply_unlink_di_segment(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged DI↔Segment unlink. Use only after explicit user OK. 204 on success."""
+    return t.apply_unlink_di_segment(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-4 M2M link/unlink tools — ProductCategory ↔ Segment
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_link_pc_segment(
+    category_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory ↔ Segment link for explicit approval. Does NOT write.
+
+    qa-server calls category.set_cache() explicitly after the link (no m2m_changed
+    signal for ProductCategory.products). After the user OKs, call
+    apply_link_pc_segment(proposal_id).
+    """
+    return t.propose_link_pc_segment(_c(), category_id, segment_id, reason)
+
+
+@srv.tool()
+def apply_link_pc_segment(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged PC↔Segment link. Use only after explicit user OK.
+
+    Returns 201 {status: 'linked'} on success, 200 {status: 'already_linked'} if
+    the link already exists (ADR-2).
+    """
+    return t.apply_link_pc_segment(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_unlink_pc_segment(
+    category_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory ↔ Segment unlink for explicit approval. Does NOT write.
+
+    Fetches current linked segments for the before-state diff. After the user OKs,
+    call apply_unlink_pc_segment(proposal_id).
+    """
+    return t.propose_unlink_pc_segment(_c(), category_id, segment_id, reason)
+
+
+@srv.tool()
+def apply_unlink_pc_segment(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged PC↔Segment unlink. Use only after explicit user OK. 204 on success."""
+    return t.apply_unlink_pc_segment(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# §FR-5 Task trigger tools (propose/apply)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_run_update_all_dicts(reason: str = '') -> dict[str, Any]:
+    """Stage an update_all_dicts Celery task trigger for explicit approval. Does NOT enqueue.
+
+    Recalculates cache for all dictionaries belonging to the current company.
+    The task is a Celery Singleton — self-deduplicates if already running. 202
+    fire-and-forget (not a sync result). After the user OKs, call
+    apply_run_update_all_dicts(proposal_id).
+    """
+    return t.propose_run_update_all_dicts(_c(), reason)
+
+
+@srv.tool()
+def apply_run_update_all_dicts(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged update_all_dicts trigger. Use only after explicit user OK.
+
+    Returns 202 {status: 'queued', task: 'update_all_dicts', company_id}.
+    """
+    return t.apply_run_update_all_dicts(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_run_set_category_for_products(category_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a set_category_for_products Celery task trigger for explicit approval. Does NOT enqueue.
+
+    category_id: ProductCategory UUID — the category whose linked Segments define
+    product membership. 202 fire-and-forget. After the user OKs, call
+    apply_run_set_category_for_products(proposal_id).
+    """
+    return t.propose_run_set_category_for_products(_c(), category_id, reason)
+
+
+@srv.tool()
+def apply_run_set_category_for_products(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged set_category_for_products trigger. Use only after explicit user OK.
+
+    Returns 202 {status: 'queued', task: 'update_product_categories', category_id}.
+    """
+    return t.apply_run_set_category_for_products(_c(), proposal_id)
+
+
 def main() -> None:
     srv.run()
 

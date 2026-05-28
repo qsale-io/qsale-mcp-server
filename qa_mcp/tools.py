@@ -770,3 +770,728 @@ def _compact_category(c: dict[str, Any]) -> dict[str, Any]:
         'published': c.get('published'),
         'share_path': c.get('share_path'),
     }
+
+
+# ---------------------------------------------------------------------------
+# Fields allowed in category create proposals.
+# ---------------------------------------------------------------------------
+ALLOWED_CATEGORY_CREATE_FIELDS = {
+    'parent',
+    'name',
+    'slug',
+    'title',
+    'description',
+    'meta_title',
+    'meta_description',
+    'group',
+}
+
+REQUIRED_CATEGORY_CREATE_FIELDS = {'name', 'slug'}
+
+# Fields allowed in dictionary-item create proposals.
+ALLOWED_DICTIONARY_ITEM_CREATE_FIELDS = {
+    'dictionary',
+    'name',
+    'data',
+    'description',
+    'sort',
+}
+
+REQUIRED_DICTIONARY_ITEM_CREATE_FIELDS = {'dictionary', 'name'}
+
+# Fields allowed in segment-filter create proposals.
+ALLOWED_SEGMENT_FILTER_CREATE_FIELDS = {
+    'segment',
+    'property',
+    'operator',
+    'value',
+    'exclude',
+    'data',
+}
+
+REQUIRED_SEGMENT_FILTER_CREATE_FIELDS = {'segment', 'property', 'operator', 'value'}
+
+
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — Dictionaries
+# ---------------------------------------------------------------------------
+
+def list_dictionaries(client: QsaleClient, limit: int = 200) -> list[dict[str, Any]]:
+    """List Dictionary rows for the current tenant."""
+    res = client.get('/api/dictionaries/', params={'limit': limit})
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def get_dictionary(client: QsaleClient, dictionary_id: str) -> dict[str, Any]:
+    """Get a single Dictionary by UUID."""
+    return client.get(f'/api/dictionaries/{dictionary_id}/')
+
+
+def list_dictionary_items(
+    client: QsaleClient,
+    dictionary_id: str | None = None,
+    search: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List DictionaryItem rows. Filter by dictionary UUID and/or search string."""
+    params: dict[str, Any] = {'limit': limit}
+    if dictionary_id:
+        params['dictionary'] = dictionary_id
+    if search:
+        params['search'] = search
+    res = client.get('/api/dictionary-items/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return [_compact_dictionary_item(i) for i in (rows or [])]
+
+
+def get_dictionary_item(client: QsaleClient, item_id: str) -> dict[str, Any]:
+    """Get a single DictionaryItem by UUID."""
+    return client.get(f'/api/dictionary-items/{item_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — Segments
+# ---------------------------------------------------------------------------
+
+def list_segments(
+    client: QsaleClient,
+    model_id: str | None = None,
+    search: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List Segment rows. Filter by model UUID and/or search string."""
+    params: dict[str, Any] = {'limit': limit}
+    if model_id:
+        params['model'] = model_id
+    if search:
+        params['search'] = search
+    res = client.get('/api/segments/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return [_compact_segment(s) for s in (rows or [])]
+
+
+def get_segment(client: QsaleClient, segment_id: str) -> dict[str, Any]:
+    """Get a single Segment by UUID."""
+    return client.get(f'/api/segments/{segment_id}/')
+
+
+def list_segment_properties(
+    client: QsaleClient,
+    model_id: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """List SegmentProperty rows. Filter by model UUID."""
+    params: dict[str, Any] = {'limit': limit}
+    if model_id:
+        params['model'] = model_id
+    res = client.get('/api/segment-properties/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def get_segment_property(client: QsaleClient, property_id: str) -> dict[str, Any]:
+    """Get a single SegmentProperty by UUID."""
+    return client.get(f'/api/segment-properties/{property_id}/')
+
+
+def list_segment_filters(
+    client: QsaleClient,
+    segment_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """List SegmentFilter rows. Filter by segment UUID (NEW endpoint on qa-server)."""
+    params: dict[str, Any] = {}
+    if segment_id:
+        params['segment'] = segment_id
+    res = client.get('/api/segment-filters/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def get_segment_filter(client: QsaleClient, filter_id: str) -> dict[str, Any]:
+    """Get a single SegmentFilter by UUID (NEW endpoint on qa-server)."""
+    return client.get(f'/api/segment-filters/{filter_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-1 Read tools — M2M list views (NEW endpoints)
+# ---------------------------------------------------------------------------
+
+def list_pc_segments(client: QsaleClient, category_id: str) -> list[dict[str, Any]]:
+    """List Segments linked to a ProductCategory (NEW endpoint on qa-server)."""
+    res = client.get(f'/api/product-categories/{category_id}/segments/')
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def list_di_segments(client: QsaleClient, dictionary_item_id: str) -> list[dict[str, Any]]:
+    """List Segments linked to a DictionaryItem (NEW endpoint on qa-server)."""
+    res = client.get(f'/api/dictionary-items/{dictionary_item_id}/segments/')
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+# ---------------------------------------------------------------------------
+# §FR-2 Category write tools
+# ---------------------------------------------------------------------------
+
+def propose_category_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory creation for explicit approval. Does NOT write.
+
+    Required fields: name, slug. Optional: parent (UUID or null for root),
+    title, description, meta_title, meta_description, group (UUID). Company
+    is set by the API from the auth header. After the user OKs, call
+    apply_category_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_CATEGORY_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_CATEGORY_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_CATEGORY_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('category_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE ProductCategory',
+            'after': fields,
+        },
+    }
+
+
+def apply_category_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged ProductCategory creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'category_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not category_create')
+    return client.post('/api/product-categories/', json=p.fields)
+
+
+# ---------------------------------------------------------------------------
+# §FR-2 DictionaryItem write tools
+# ---------------------------------------------------------------------------
+
+def propose_dictionary_item_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem creation for explicit approval. Does NOT write.
+
+    Required fields: dictionary (UUID), name. Optional: data (dict), description,
+    sort (int, default 0). After the user OKs, call
+    apply_dictionary_item_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_DICTIONARY_ITEM_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_DICTIONARY_ITEM_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_DICTIONARY_ITEM_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('dictionary_item_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE DictionaryItem',
+            'after': fields,
+        },
+    }
+
+
+def apply_dictionary_item_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged DictionaryItem creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'dictionary_item_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not dictionary_item_create')
+    return client.post('/api/dictionary-items/', json=p.fields)
+
+
+def propose_dictionary_item_delete(
+    client: QsaleClient,
+    item_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem deletion for explicit approval. Does NOT write.
+
+    Fetches current state (name + dictionary) for the before-state diff. API 400
+    (item in use) will be proxied when apply is called. After the user OKs, call
+    apply_dictionary_item_delete(proposal_id).
+    """
+    current = get_dictionary_item(client, item_id)
+    before = {
+        'name': current.get('name'),
+        'dictionary': current.get('dictionary'),
+    }
+    p = proposals.register('dictionary_item_delete', item_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'item_id': item_id,
+        'reason': reason,
+        'summary': {
+            'action': 'DELETE DictionaryItem',
+            'before': before,
+        },
+    }
+
+
+def apply_dictionary_item_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged DictionaryItem deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'dictionary_item_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not dictionary_item_delete')
+    return client.delete(f'/api/dictionary-items/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-3 Segment write tools
+# ---------------------------------------------------------------------------
+
+def propose_segment_create(
+    client: QsaleClient,
+    model_id: str,
+    name: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Segment creation for explicit approval. Does NOT write.
+
+    model_id: SegmentModel UUID (use list_segment_properties to discover models).
+    name: human-readable label (e.g. 'ResortId — Kemer A').
+    After the user OKs, call apply_segment_create(proposal_id).
+    """
+    fields = {'model': model_id, 'name': name}
+    p = proposals.register('segment_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE Segment',
+            'after': fields,
+        },
+    }
+
+
+def apply_segment_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Segment creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_create')
+    return client.post('/api/segments/', json=p.fields)
+
+
+def propose_segment_delete(
+    client: QsaleClient,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Segment deletion for explicit approval. Does NOT write.
+
+    Fetches current segment (name + filter count) and shows it as a warning.
+    API 400 (segment not deletable) will be proxied when apply is called.
+    After the user OKs, call apply_segment_delete(proposal_id).
+    """
+    current = get_segment(client, segment_id)
+    filters = list_segment_filters(client, segment_id=segment_id)
+    before = {
+        'name': current.get('name'),
+        'model': current.get('model'),
+        'filter_count': len(filters),
+    }
+    p = proposals.register('segment_delete', segment_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'segment_id': segment_id,
+        'reason': reason,
+        'warning': f'Segment "{before["name"]}" has {before["filter_count"]} filter(s). Deleting removes them all.',
+        'summary': {
+            'action': 'DELETE Segment',
+            'before': before,
+        },
+    }
+
+
+def apply_segment_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Segment deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_delete')
+    return client.delete(f'/api/segments/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-3 SegmentFilter write tools
+# ---------------------------------------------------------------------------
+
+def propose_segment_filter_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentFilter creation for explicit approval. Does NOT write.
+
+    Required fields: segment (UUID), property (UUID), operator (e.g. IN/NOT_IN/
+    EQ/GTE/LTE), value (JSON — list for IN/NOT_IN, scalar for others). Optional:
+    exclude (bool, default False), data (dict). Use get_segment_property first to
+    check allowed operators for the property type. Server validates operator/value
+    compatibility (400 proxied). After the user OKs, call
+    apply_segment_filter_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_SEGMENT_FILTER_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_SEGMENT_FILTER_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_SEGMENT_FILTER_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('segment_filter_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE SegmentFilter',
+            'after': fields,
+        },
+    }
+
+
+def apply_segment_filter_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentFilter creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_filter_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_filter_create')
+    return client.post('/api/segment-filters/', json=p.fields)
+
+
+def propose_segment_filter_update(
+    client: QsaleClient,
+    filter_id: str,
+    value: Any,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentFilter value update for explicit approval. Does NOT write.
+
+    Fetches current filter (NEW endpoint) to build before/after diff. `value` is
+    a JSON array for IN/NOT_IN operators (list of Sletat resort IDs etc.) or a
+    scalar for EQ/GTE/LTE. After the user OKs, call
+    apply_segment_filter_update(proposal_id).
+    """
+    current = get_segment_filter(client, filter_id)
+    before_value = current.get('value')
+    fields = {'value': value}
+
+    p = proposals.register('segment_filter_update', filter_id, fields, {'value': before_value}, reason)
+    return {
+        'proposal_id': p.id,
+        'filter_id': filter_id,
+        'reason': reason,
+        'changes': [
+            {'field': 'value', 'before': before_value, 'after': value},
+        ],
+    }
+
+
+def apply_segment_filter_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentFilter value update. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_filter_update':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_filter_update')
+    return client.patch(f'/api/segment-filters/{p.target_id}/', json=p.fields)
+
+
+def propose_segment_filter_delete(
+    client: QsaleClient,
+    filter_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentFilter deletion for explicit approval. Does NOT write.
+
+    Fetches current state for the before-state diff. After the user OKs, call
+    apply_segment_filter_delete(proposal_id).
+    """
+    current = get_segment_filter(client, filter_id)
+    before = {
+        'segment': current.get('segment'),
+        'property': current.get('property'),
+        'operator': current.get('operator'),
+        'value': current.get('value'),
+    }
+    p = proposals.register('segment_filter_delete', filter_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'filter_id': filter_id,
+        'reason': reason,
+        'summary': {
+            'action': 'DELETE SegmentFilter',
+            'before': before,
+        },
+    }
+
+
+def apply_segment_filter_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentFilter deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_filter_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_filter_delete')
+    return client.delete(f'/api/segment-filters/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-4 M2M link/unlink tools — DictionaryItem ↔ Segment
+# ---------------------------------------------------------------------------
+
+def propose_link_di_segment(
+    client: QsaleClient,
+    dictionary_item_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem ↔ Segment link for explicit approval. Does NOT write.
+
+    Validation (model compatibility) is enforced server-side; 400 proxied.
+    After the user OKs, call apply_link_di_segment(proposal_id).
+    """
+    fields = {'segment_id': segment_id}
+    p = proposals.register('link_di_segment', dictionary_item_id, fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'LINK DictionaryItem → Segment',
+            'dictionary_item_id': dictionary_item_id,
+            'segment_id': segment_id,
+        },
+    }
+
+
+def apply_link_di_segment(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged DI↔Segment link. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'link_di_segment':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not link_di_segment')
+    return client.post(
+        f'/api/dictionary-items/{p.target_id}/segments/',
+        json={'segment_id': p.fields['segment_id']},
+    )
+
+
+def propose_unlink_di_segment(
+    client: QsaleClient,
+    dictionary_item_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a DictionaryItem ↔ Segment unlink for explicit approval. Does NOT write.
+
+    Fetches current linked segments to confirm the link exists (before-state).
+    After the user OKs, call apply_unlink_di_segment(proposal_id).
+    """
+    current_links = list_di_segments(client, dictionary_item_id)
+    before = {'linked_segments': [s.get('id') for s in current_links]}
+    fields = {'segment_id': segment_id}
+    p = proposals.register('unlink_di_segment', dictionary_item_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'UNLINK DictionaryItem ← Segment',
+            'dictionary_item_id': dictionary_item_id,
+            'segment_id': segment_id,
+            'currently_linked_segment_ids': before['linked_segments'],
+        },
+    }
+
+
+def apply_unlink_di_segment(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged DI↔Segment unlink. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'unlink_di_segment':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not unlink_di_segment')
+    return client.delete(
+        f'/api/dictionary-items/{p.target_id}/segments/{p.fields["segment_id"]}/'
+    )
+
+
+# ---------------------------------------------------------------------------
+# §FR-4 M2M link/unlink tools — ProductCategory ↔ Segment
+# ---------------------------------------------------------------------------
+
+def propose_link_pc_segment(
+    client: QsaleClient,
+    category_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory ↔ Segment link for explicit approval. Does NOT write.
+
+    After link, qa-server calls category.set_cache() explicitly (no m2m_changed
+    signal). 400/404 proxied. After the user OKs, call apply_link_pc_segment(proposal_id).
+    """
+    fields = {'segment_id': segment_id}
+    p = proposals.register('link_pc_segment', category_id, fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'LINK ProductCategory → Segment',
+            'category_id': category_id,
+            'segment_id': segment_id,
+        },
+    }
+
+
+def apply_link_pc_segment(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged PC↔Segment link. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'link_pc_segment':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not link_pc_segment')
+    return client.post(
+        f'/api/product-categories/{p.target_id}/segments/',
+        json={'segment_id': p.fields['segment_id']},
+    )
+
+
+def propose_unlink_pc_segment(
+    client: QsaleClient,
+    category_id: str,
+    segment_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory ↔ Segment unlink for explicit approval. Does NOT write.
+
+    Fetches current linked segments to confirm the link exists (before-state).
+    After the user OKs, call apply_unlink_pc_segment(proposal_id).
+    """
+    current_links = list_pc_segments(client, category_id)
+    before = {'linked_segments': [s.get('id') for s in current_links]}
+    fields = {'segment_id': segment_id}
+    p = proposals.register('unlink_pc_segment', category_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'UNLINK ProductCategory ← Segment',
+            'category_id': category_id,
+            'segment_id': segment_id,
+            'currently_linked_segment_ids': before['linked_segments'],
+        },
+    }
+
+
+def apply_unlink_pc_segment(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged PC↔Segment unlink. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'unlink_pc_segment':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not unlink_pc_segment')
+    return client.delete(
+        f'/api/product-categories/{p.target_id}/segments/{p.fields["segment_id"]}/'
+    )
+
+
+# ---------------------------------------------------------------------------
+# §FR-5 Task trigger tools
+# ---------------------------------------------------------------------------
+
+def propose_run_update_all_dicts(
+    client: QsaleClient,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage an update_all_dicts task trigger for explicit approval. Does NOT enqueue.
+
+    The task is a Celery Singleton — self-deduplicates if already running.
+    Response is 202 (fire-and-forget; not a sync result). After the user OKs,
+    call apply_run_update_all_dicts(proposal_id).
+    """
+    fields: dict[str, Any] = {}
+    p = proposals.register('run_update_all_dicts', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'warning': (
+            f'Will trigger update_all_dicts_actual_task for company {client.company_id}. '
+            'Async — dictionary caches recalculated in background.'
+        ),
+    }
+
+
+def apply_run_update_all_dicts(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged update_all_dicts task trigger. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'run_update_all_dicts':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not run_update_all_dicts')
+    return client.post('/api/tasks/update-all-dicts/')
+
+
+def propose_run_set_category_for_products(
+    client: QsaleClient,
+    category_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a set_category_for_products task trigger for explicit approval. Does NOT enqueue.
+
+    category_id: ProductCategory UUID — the category whose linked Segments will
+    define product membership. Response is 202 (fire-and-forget). After the user
+    OKs, call apply_run_set_category_for_products(proposal_id).
+    """
+    fields = {'category_id': category_id}
+    p = proposals.register('run_set_category_for_products', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'warning': (
+            f'Will trigger update_product_categories for category {category_id}. '
+            'Async — products recategorized in background.'
+        ),
+    }
+
+
+def apply_run_set_category_for_products(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged set_category_for_products task trigger. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'run_set_category_for_products':
+        raise ValueError(
+            f'Proposal {proposal_id} is kind={p.kind!r}, not run_set_category_for_products'
+        )
+    return client.post(
+        '/api/tasks/set-category-for-products/',
+        json={'category_id': p.fields['category_id']},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Compact helpers for new types
+# ---------------------------------------------------------------------------
+
+def _compact_dictionary_item(i: dict[str, Any]) -> dict[str, Any]:
+    """Trim DictionaryItem to list-view essentials."""
+    return {
+        'id': i.get('id'),
+        'name': i.get('name'),
+        'dictionary': i.get('dictionary'),
+        'description': i.get('description'),
+        'sort': i.get('sort'),
+        'data': i.get('data'),
+    }
+
+
+def _compact_segment(s: dict[str, Any]) -> dict[str, Any]:
+    """Trim Segment to list-view essentials."""
+    return {
+        'id': s.get('id'),
+        'name': s.get('name'),
+        'model': s.get('model'),
+        'count': s.get('count'),
+        'system': s.get('system'),
+    }
