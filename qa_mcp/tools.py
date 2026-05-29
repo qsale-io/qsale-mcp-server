@@ -1062,15 +1062,19 @@ def propose_segment_create(
     client: QsaleClient,
     model_id: str,
     name: str,
+    filters: list[dict[str, Any]] | None = None,
     reason: str = '',
 ) -> dict[str, Any]:
     """Stage a Segment creation for explicit approval. Does NOT write.
 
     model_id: SegmentModel UUID (use list_segment_properties to discover models).
     name: human-readable label (e.g. 'ResortId — Kemer A').
+    filters: list of inline SegmentFilter dicts (qa-server requires at least one
+        per POST /api/segments/). Each dict: {property, operator, value, exclude?}.
+        Example: [{'property': '<uuid>', 'operator': 'in', 'value': ['6805']}].
     After the user OKs, call apply_segment_create(proposal_id).
     """
-    fields = {'model': model_id, 'name': name}
+    fields: dict[str, Any] = {'model': model_id, 'name': name, 'filters': filters or []}
     p = proposals.register('segment_create', '', fields, {}, reason)
     return {
         'proposal_id': p.id,
