@@ -616,14 +616,21 @@ def apply_dictionary_item_delete(proposal_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 @srv.tool()
-def propose_segment_create(model_id: str, name: str, reason: str = '') -> dict[str, Any]:
+def propose_segment_create(
+    model_id: str,
+    name: str,
+    filters: list[dict[str, Any]] | None = None,
+    reason: str = '',
+) -> dict[str, Any]:
     """Stage a Segment creation for explicit approval. Does NOT write.
 
     model_id: SegmentModel UUID (e.g. the product segment model — get from
-    list_segment_properties). name: human-readable label (e.g. 'ResortId — Kemer A').
+    list_segment_properties). name: human-readable label.
+    filters: inline SegmentFilter dicts (qa-server requires at least one).
+    Each: {property: UUID, operator: 'in'|..., value: list|scalar, exclude?: bool}.
     After the user OKs, call apply_segment_create(proposal_id).
     """
-    return t.propose_segment_create(_c(), model_id, name, reason)
+    return t.propose_segment_create(_c(), model_id, name, filters, reason)
 
 
 @srv.tool()
