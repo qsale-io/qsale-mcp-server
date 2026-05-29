@@ -977,6 +977,176 @@ def apply_category_create(client: QsaleClient, proposal_id: str) -> dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# Bulk SEO-resort tree creation: one approval covers N resort nodes,
+# each producing DI + Segment(A) + Segment(B) + Category + 2 links.
+# Designed for programmatic SEO rollouts (e.g. 44 Turkey resorts at once).
+# ---------------------------------------------------------------------------
+
+REQUIRED_RESORT_NODE_FIELDS = {'slug', 'name', 'title', 'meta_title', 'meta_description', 'sletat_ext_ids'}
+
+
+def propose_seo_resort_bulk(
+    client: QsaleClient,
+    nodes: list[dict[str, Any]],
+    parent_id: str,
+    group_id: str,
+    dictionary_id: str,
+    segment_model_id: str,
+    resort_property_id: str,
+    region_clean_property_id: str,
+    di_name_template: str = 'регион {name}',
+    seg_a_name_template: str = '{name} resort',
+    seg_b_name_template: str = '{name} очищенный',
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage bulk creation of N resort nodes for explicit approval. Does NOT write.
+
+    Each node creates:
+      1. DictionaryItem in `dictionary_id`
+      2. Segment A (filter: resort property IN sletat_ext_ids), linked to the DI
+      3. Segment B (filter: region_clean property IN [DI.id]), linked to the PC
+      4. ProductCategory (parent, group, slug, name, title, meta_*)
+
+    Required per-node fields: slug, name, title, meta_title, meta_description,
+    sletat_ext_ids (list of str). Optional: description, sort.
+
+    After the user OKs, call apply_seo_resort_bulk(proposal_id) — it runs all
+    nodes sequentially. If a node fails mid-flight, earlier nodes are not
+    rolled back; the response includes per-node results and the failure index.
+    """
+    if not nodes:
+        raise ValueError('nodes must be non-empty')
+    for i, node in enumerate(nodes):
+        missing = REQUIRED_RESORT_NODE_FIELDS - set(node)
+        if missing:
+            raise ValueError(f'Node {i} ({node.get("slug", "?")!r}) missing fields: {sorted(missing)}')
+        if not isinstance(node['sletat_ext_ids'], list) or not node['sletat_ext_ids']:
+            raise ValueError(f'Node {i} ({node["slug"]!r}) sletat_ext_ids must be a non-empty list')
+
+    payload = {
+        'nodes': nodes,
+        'parent_id': parent_id,
+        'group_id': group_id,
+        'dictionary_id': dictionary_id,
+        'segment_model_id': segment_model_id,
+        'resort_property_id': resort_property_id,
+        'region_clean_property_id': region_clean_property_id,
+        'di_name_template': di_name_template,
+        'seg_a_name_template': seg_a_name_template,
+        'seg_b_name_template': seg_b_name_template,
+    }
+    p = proposals.register('seo_resort_bulk', '', payload, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': f'BULK CREATE {len(nodes)} resort nodes (DI+SegA+SegB+PC+2 links each)',
+            'count': len(nodes),
+            'parent_id': parent_id,
+            'group_id': group_id,
+            'sample_nodes': [n['slug'] for n in nodes[:5]],
+            'total_operations': len(nodes) * 6,
+        },
+    }
+
+
+def apply_seo_resort_bulk(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged bulk resort creation. Runs sequentially.
+
+    On per-node failure: stops, returns successes + the failing index + error.
+    No automatic rollback — manual cleanup via delete tools if needed.
+    """
+    p = proposals.pop(proposal_id)
+    if p.kind != 'seo_resort_bulk':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not seo_resort_bulk')
+
+    cfg = p.fields
+    results: list[dict[str, Any]] = []
+
+    for i, node in enumerate(cfg['nodes']):
+        try:
+            di = client.post(
+                '/api/dictionary-items/',
+                json={
+                    'dictionary': cfg['dictionary_id'],
+                    'name': cfg['di_name_template'].format(name=node['name']),
+                    'description': node.get('description', node['name']),
+                },
+            )
+            seg_a = client.post(
+                '/api/segments/',
+                json={
+                    'model': cfg['segment_model_id'],
+                    'name': cfg['seg_a_name_template'].format(name=node['name']),
+                    'filters': [
+                        {
+                            'property': cfg['resort_property_id'],
+                            'operator': 'in',
+                            'value': node['sletat_ext_ids'],
+                        }
+                    ],
+                },
+            )
+            seg_b = client.post(
+                '/api/segments/',
+                json={
+                    'model': cfg['segment_model_id'],
+                    'name': cfg['seg_b_name_template'].format(name=node['name']),
+                    'filters': [
+                        {
+                            'property': cfg['region_clean_property_id'],
+                            'operator': 'in',
+                            'value': [di['id']],
+                        }
+                    ],
+                },
+            )
+            client.post(
+                f'/api/dictionary-items/{di["id"]}/segments/',
+                json={'segment_id': seg_a['id']},
+            )
+            pc_fields = {
+                'parent': cfg['parent_id'],
+                'group': cfg['group_id'],
+                'slug': node['slug'],
+                'name': node['name'],
+                'title': node['title'],
+                'meta_title': node['meta_title'],
+                'meta_description': node['meta_description'],
+            }
+            if 'description' in node:
+                pc_fields['description'] = node['description']
+            pc = client.post('/api/product-categories/', json=pc_fields)
+            client.post(
+                f'/api/product-categories/{pc["id"]}/segments/',
+                json={'segment_id': seg_b['id']},
+            )
+            results.append(
+                {
+                    'index': i,
+                    'slug': node['slug'],
+                    'status': 'ok',
+                    'di_id': di['id'],
+                    'segment_a_id': seg_a['id'],
+                    'segment_b_id': seg_b['id'],
+                    'pc_id': pc['id'],
+                }
+            )
+        except Exception as e:
+            results.append(
+                {
+                    'index': i,
+                    'slug': node['slug'],
+                    'status': 'failed',
+                    'error': str(e),
+                }
+            )
+            return {'completed': i, 'total': len(cfg['nodes']), 'results': results, 'stopped_at': i}
+
+    return {'completed': len(cfg['nodes']), 'total': len(cfg['nodes']), 'results': results}
+
+
+# ---------------------------------------------------------------------------
 # §FR-2 DictionaryItem write tools
 # ---------------------------------------------------------------------------
 

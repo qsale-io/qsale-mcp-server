@@ -573,6 +573,46 @@ def apply_category_create(proposal_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Bulk SEO-resort tree (one approval covers N nodes)
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_seo_resort_bulk(
+    nodes: list[dict[str, Any]],
+    parent_id: str,
+    group_id: str,
+    dictionary_id: str,
+    segment_model_id: str,
+    resort_property_id: str,
+    region_clean_property_id: str,
+    di_name_template: str = 'регион {name}',
+    seg_a_name_template: str = '{name} resort',
+    seg_b_name_template: str = '{name} очищенный',
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage bulk creation of N resort nodes. Each node produces DI + Segment A
+    (resort filter) + Segment B (region_clean filter) + ProductCategory + 2 m2m links.
+
+    Required per-node fields: slug, name, title, meta_title, meta_description,
+    sletat_ext_ids (list[str]). Optional: description.
+
+    After the user OKs, call apply_seo_resort_bulk(proposal_id). Runs sequentially,
+    stops on first failure, no automatic rollback.
+    """
+    return t.propose_seo_resort_bulk(
+        _c(), nodes, parent_id, group_id, dictionary_id, segment_model_id,
+        resort_property_id, region_clean_property_id,
+        di_name_template, seg_a_name_template, seg_b_name_template, reason,
+    )
+
+
+@srv.tool()
+def apply_seo_resort_bulk(proposal_id: str) -> dict[str, Any]:
+    """Apply staged bulk resort creation. Returns per-node results."""
+    return t.apply_seo_resort_bulk(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
 # §FR-2 DictionaryItem write tools (propose/apply)
 # ---------------------------------------------------------------------------
 
