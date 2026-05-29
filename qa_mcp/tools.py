@@ -21,6 +21,7 @@ ALLOWED_CATEGORY_FIELDS = {
     'meta_description',
     'published',
     'sort',
+    'group',           # ProductCategoryGroup UUID or None — admin tree placement
 }
 
 # Fields allowed in update_redirect.
