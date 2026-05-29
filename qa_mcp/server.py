@@ -573,43 +573,22 @@ def apply_category_create(proposal_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Bulk SEO-resort tree (one approval covers N nodes)
+# Bulk apply: one approval covers N already-staged proposals of any kind
 # ---------------------------------------------------------------------------
 
 @srv.tool()
-def propose_seo_resort_bulk(
-    nodes: list[dict[str, Any]],
-    parent_id: str,
-    group_id: str,
-    dictionary_id: str,
-    segment_model_id: str,
-    resort_property_id: str,
-    region_clean_property_id: str,
-    di_name_template: str = 'регион {name}',
-    seg_a_name_template: str = '{name} resort',
-    seg_b_name_template: str = '{name} очищенный',
-    reason: str = '',
-) -> dict[str, Any]:
-    """Stage bulk creation of N resort nodes. Each node produces DI + Segment A
-    (resort filter) + Segment B (region_clean filter) + ProductCategory + 2 m2m links.
+def bulk_apply(proposal_ids: list[str]) -> dict[str, Any]:
+    """Apply N already-staged proposals of any kind in order. ONE approval.
 
-    Required per-node fields: slug, name, title, meta_title, meta_description,
-    sletat_ext_ids (list[str]). Optional: description.
+    Each proposal is dispatched to its kind-specific apply function. Stops on
+    first failure (not_found / unsupported_kind / API error); returns per-item
+    status. No rollback — manual cleanup via delete tools if needed.
 
-    After the user OKs, call apply_seo_resort_bulk(proposal_id). Runs sequentially,
-    stops on first failure, no automatic rollback.
+    Use case: any workflow that stages many proposals first (e.g. programmatic
+    SEO rolling out N resort trees, each needing DI + Segment(A) + Segment(B) +
+    Category + 2 m2m links) and approves the whole batch at once.
     """
-    return t.propose_seo_resort_bulk(
-        _c(), nodes, parent_id, group_id, dictionary_id, segment_model_id,
-        resort_property_id, region_clean_property_id,
-        di_name_template, seg_a_name_template, seg_b_name_template, reason,
-    )
-
-
-@srv.tool()
-def apply_seo_resort_bulk(proposal_id: str) -> dict[str, Any]:
-    """Apply staged bulk resort creation. Returns per-node results."""
-    return t.apply_seo_resort_bulk(_c(), proposal_id)
+    return t.bulk_apply(_c(), proposal_ids)
 
 
 # ---------------------------------------------------------------------------
