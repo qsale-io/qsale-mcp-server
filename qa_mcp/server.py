@@ -572,6 +572,24 @@ def apply_category_create(proposal_id: str) -> dict[str, Any]:
     return t.apply_category_create(_c(), proposal_id)
 
 
+@srv.tool()
+def propose_category_delete(category_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a ProductCategory deletion for explicit approval. Does NOT write.
+
+    Fetches the current category (name, slug, parent, published) and shows it
+    as a warning. The qa-server DELETE endpoint detaches children and linked
+    segments per its own rules; any 4xx/409 is proxied at apply time. After
+    the user OKs, call apply_category_delete(proposal_id).
+    """
+    return t.propose_category_delete(_c(), category_id, reason)
+
+
+@srv.tool()
+def apply_category_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged ProductCategory deletion. Use only after explicit user OK."""
+    return t.apply_category_delete(_c(), proposal_id)
+
+
 # ---------------------------------------------------------------------------
 # Bulk apply: one approval covers N already-staged proposals of any kind
 # ---------------------------------------------------------------------------

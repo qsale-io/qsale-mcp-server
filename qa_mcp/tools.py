@@ -976,6 +976,49 @@ def apply_category_create(client: QsaleClient, proposal_id: str) -> dict[str, An
     return client.post('/api/product-categories/', json=p.fields)
 
 
+def propose_category_delete(
+    client: QsaleClient,
+    category_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a ProductCategory deletion for explicit approval. Does NOT write.
+
+    Fetches current category (name, slug, parent, published) and shows it as a
+    warning. API 400/409 (category has children or other constraints) will be
+    proxied when apply is called. After the user OKs, call
+    apply_category_delete(proposal_id).
+    """
+    current = get_category(client, category_id)
+    before = {
+        'name': current.get('name'),
+        'slug': current.get('slug'),
+        'parent': current.get('parent'),
+        'published': current.get('published'),
+    }
+    p = proposals.register('category_delete', category_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'category_id': category_id,
+        'reason': reason,
+        'warning': (
+            f'ProductCategory "{before["name"]}" (slug={before["slug"]!r}) will be deleted. '
+            'Children, linked segments, and product memberships are detached per qa-server rules.'
+        ),
+        'summary': {
+            'action': 'DELETE ProductCategory',
+            'before': before,
+        },
+    }
+
+
+def apply_category_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged ProductCategory deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'category_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not category_delete')
+    return client.delete(f'/api/product-categories/{p.target_id}/')
+
+
 # ---------------------------------------------------------------------------
 # §FR-2 DictionaryItem write tools
 # ---------------------------------------------------------------------------
@@ -1515,6 +1558,7 @@ _BULK_APPLY_REGISTRY: dict[str, Any] = {
     'mail_template_update': apply_mail_template_update,
     'promotion_trigger_create': apply_promotion_trigger_create,
     'category_create': apply_category_create,
+    'category_delete': apply_category_delete,
     'dictionary_item_create': apply_dictionary_item_create,
     'dictionary_item_delete': apply_dictionary_item_delete,
     'segment_create': apply_segment_create,
