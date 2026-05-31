@@ -892,6 +892,47 @@ def apply_run_set_category_for_products(proposal_id: str) -> dict[str, Any]:
     return t.apply_run_set_category_for_products(_c(), proposal_id)
 
 
+@srv.tool()
+def list_products(
+    name: str | None = None,
+    published: bool | None = None,
+    segment_filters: dict[str, str] | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """List products from /api/products/ (paginated).
+
+    name: icontains match on Product.name.
+    published: filter by published flag.
+    segment_filters: dict of {SegmentProperty.id.hex: Segment.id.hex} — restrict
+        to products matching the given segment(s). UUIDs with or without hyphens.
+        Multiple entries AND together. Use this to spot-check that products
+        matching a leaf Segment (e.g. Konakli SegB) have Product.category set
+        to the expected ProductCategory UUID.
+    page, page_size: pagination (default 1 / 20).
+
+    Returns: {count, page, next_page, results: [<compact product>, ...]} where
+    each product is trimmed to {id, ext_id, name, slug, category, published,
+    sort, price, share_path}.
+    """
+    return t.list_products(
+        _c(),
+        name=name,
+        published=published,
+        segment_filters=segment_filters,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@srv.tool()
+def get_product(product_id: str) -> dict[str, Any]:
+    """Get a single Product by UUID. Returns full detail including data,
+    images, attachments, keywords, share_url.
+    """
+    return t.get_product(_c(), product_id)
+
+
 def main() -> None:
     srv.run()
 

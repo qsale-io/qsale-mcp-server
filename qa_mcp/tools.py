@@ -1604,3 +1604,68 @@ def bulk_apply(client: QsaleClient, proposal_ids: list[str]) -> dict[str, Any]:
             results.append({'proposal_id': pid, 'status': 'failed', 'kind': p.kind, 'error': str(e)})
             return {'completed': len(results) - 1, 'total': len(proposal_ids), 'results': results}
     return {'completed': len(proposal_ids), 'total': len(proposal_ids), 'results': results}
+
+
+# ---------------------------------------------------------------------------
+# Products (read-only) — for spot-checks and pipeline verification.
+# ---------------------------------------------------------------------------
+
+
+def _compact_product(p: dict[str, Any]) -> dict[str, Any]:
+    """Trim Product API response — keep fields useful for spot-checks."""
+    return {
+        'id': p.get('id'),
+        'ext_id': p.get('ext_id'),
+        'name': p.get('name'),
+        'slug': p.get('slug'),
+        'category': p.get('category'),
+        'published': p.get('published'),
+        'sort': p.get('sort'),
+        'price': p.get('price'),
+        'share_path': p.get('share_path'),
+    }
+
+
+def list_products(
+    client: QsaleClient,
+    name: str | None = None,
+    published: bool | None = None,
+    segment_filters: dict[str, str] | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """List products from /api/products/ (paginated).
+
+    name: icontains match on Product.name.
+    published: filter by published flag.
+    segment_filters: dict of {SegmentProperty.id.hex: Segment.id.hex} — filter
+        products matching the given segment. Use UUID strings (with or without
+        hyphens). Multiple entries AND together. Only SegmentProperties with
+        is_filter=True and at least one system_segment are accepted — others
+        are silently ignored by the API. Check `GET /api/products/filters/`
+        to see what is filterable.
+    page, page_size: pagination (default page_size=20).
+
+    Returns: {count, page, results: [<compact product>, ...]}.
+    """
+    params: dict[str, Any] = {'page': page, 'page_size': page_size}
+    if name:
+        params['name'] = name
+    if published is not None:
+        params['published'] = 'true' if published else 'false'
+    for prop_id, seg_id in (segment_filters or {}).items():
+        params[prop_id.replace('-', '')] = seg_id.replace('-', '')
+    raw = client.get('/api/products/', params=params) or {}
+    if isinstance(raw, list):
+        return {'count': len(raw), 'page': 1, 'results': [_compact_product(p) for p in raw]}
+    return {
+        'count': raw.get('count'),
+        'page': raw.get('page'),
+        'next_page': raw.get('next_page'),
+        'results': [_compact_product(p) for p in (raw.get('results') or [])],
+    }
+
+
+def get_product(client: QsaleClient, product_id: str) -> dict[str, Any]:
+    """Get a single product by UUID. Returns full detail incl. data, images, attachments."""
+    return client.get(f'/api/products/{product_id}/')
