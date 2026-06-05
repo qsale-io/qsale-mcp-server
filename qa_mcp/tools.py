@@ -1482,6 +1482,39 @@ def apply_run_update_all_dicts(client: QsaleClient, proposal_id: str) -> dict[st
     return client.post('/api/tasks/update-all-dicts/')
 
 
+def propose_run_update_dict(
+    client: QsaleClient,
+    dictionary_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage update_segment_model_objects_from_dict for a single Dictionary. Does NOT enqueue.
+
+    Unlike run_update_all_dicts which iterates all auto=True dictionaries, this
+    task processes exactly one dictionary regardless of its ``auto`` flag. Useful
+    for one-off backfills after manually wiring a DictionaryItem ↔ Segment link
+    (e.g. brand onboarding for a new tenant). 202 fire-and-forget.
+    """
+    fields = {'dictionary_id': dictionary_id}
+    p = proposals.register('run_update_dict', dictionary_id, fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'dictionary_id': dictionary_id,
+        'reason': reason,
+        'warning': (
+            f'Will trigger update_segment_model_objects_from_dict({dictionary_id}). '
+            'Async — products in linked segments get their data written from the dictionary in the background.'
+        ),
+    }
+
+
+def apply_run_update_dict(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged update_dict task trigger. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'run_update_dict':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not run_update_dict')
+    return client.post('/api/tasks/update-dict/', json=p.fields)
+
+
 def propose_run_set_category_for_products(
     client: QsaleClient,
     category_id: str,
@@ -1571,6 +1604,7 @@ _BULK_APPLY_REGISTRY: dict[str, Any] = {
     'link_pc_segment': apply_link_pc_segment,
     'unlink_pc_segment': apply_unlink_pc_segment,
     'run_update_all_dicts': apply_run_update_all_dicts,
+    'run_update_dict': apply_run_update_dict,
     'run_set_category_for_products': apply_run_set_category_for_products,
 }
 

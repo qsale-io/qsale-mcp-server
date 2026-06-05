@@ -873,6 +873,27 @@ def apply_run_update_all_dicts(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
+def propose_run_update_dict(dictionary_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage update_segment_model_objects_from_dict for a single Dictionary. Does NOT enqueue.
+
+    Targets one Dictionary by UUID regardless of its ``auto`` flag — used after
+    wiring a DictionaryItem ↔ Segment link to backfill products belonging to
+    that segment with the item's data (e.g. brand onboarding for a new tenant).
+    202 fire-and-forget.
+    """
+    return t.propose_run_update_dict(_c(), dictionary_id, reason)
+
+
+@srv.tool()
+def apply_run_update_dict(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged update_dict trigger. Use only after explicit user OK.
+
+    Returns 202 {status: 'queued', task: 'update_segment_model_objects_from_dict', dictionary_id}.
+    """
+    return t.apply_run_update_dict(_c(), proposal_id)
+
+
+@srv.tool()
 def propose_run_set_category_for_products(category_id: str, reason: str = '') -> dict[str, Any]:
     """Stage a set_category_for_products Celery task trigger for explicit approval. Does NOT enqueue.
 
