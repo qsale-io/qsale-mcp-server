@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-05
+
+### Added
+
+- `list_promotions`, `get_promotion` — read access to Promotion entities
+  with filters by state, type, published flag, name.
+- `propose / apply_promotion_create`, `propose / apply_promotion_update`
+  — two-phase write for Promotion. Whitelist validation on input
+  fields and on the `type` value (BONUS_AMOUNT, BONUS_PERCENT, AMOUNT,
+  PERCENT, GIFT, INFO).
+- `list_promotion_codes`, `get_promotion_code` — read access to
+  PromotionCode entries with filter by parent promotion, usage state,
+  or exact code value.
+
 ## [0.1.0] - 2026-06-05
 
 Initial public release.

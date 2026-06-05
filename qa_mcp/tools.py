@@ -2053,3 +2053,241 @@ def apply_segment_property_choice_delete(client: QsaleClient, proposal_id: str) 
     if p.kind != 'segment_property_choice_delete':
         raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_delete')
     return client.delete(f'/api/segment-property-choices/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# Promotions
+# ---------------------------------------------------------------------------
+
+ALLOWED_PROMOTION_CREATE_FIELDS = {
+    'name',
+    'slug',
+    'type',
+    'description',
+    'active_since',
+    'active_until',
+    'customers',
+    'products',
+    'outlets',
+    'terms',
+    'settings',
+    'priority',
+    'value',
+    'published',
+    'sort',
+}
+
+REQUIRED_PROMOTION_CREATE_FIELDS = {'name', 'type'}
+
+ALLOWED_PROMOTION_UPDATE_FIELDS = ALLOWED_PROMOTION_CREATE_FIELDS
+
+PROMOTION_TYPES = {
+    'BONUS_AMOUNT',
+    'BONUS_PERCENT',
+    'AMOUNT',
+    'PERCENT',
+    'GIFT',
+    'INFO',
+}
+
+
+def _compact_promotion(p: dict[str, Any]) -> dict[str, Any]:
+    """Trim Promotion to list-view essentials."""
+    return {
+        'id': p.get('id'),
+        'name': p.get('name'),
+        'slug': p.get('slug'),
+        'type': p.get('type'),
+        'state': p.get('state'),
+        'published': p.get('published'),
+        'active_since': p.get('active_since'),
+        'active_until': p.get('active_until'),
+        'priority': p.get('priority'),
+        'value': p.get('value'),
+    }
+
+
+def _compact_promotion_code(c: dict[str, Any]) -> dict[str, Any]:
+    """Trim PromotionCode to list-view essentials."""
+    return {
+        'id': c.get('id'),
+        'code': c.get('code'),
+        'promotion': c.get('promotion'),
+        'is_used': c.get('is_used'),
+        'used_at': c.get('used_at'),
+        'customer': c.get('customer'),
+    }
+
+
+def list_promotions(
+    client: QsaleClient,
+    state: str | None = None,
+    type: str | None = None,
+    published: bool | None = None,
+    name: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """List promotions for the current tenant (compact view).
+
+    Filters:
+        state     — Promotion state (e.g. DRAFT, ACTIVE, ARCHIVED).
+        type      — Promotion type. One of BONUS_AMOUNT, BONUS_PERCENT, AMOUNT,
+                    PERCENT, GIFT, INFO.
+        published — Filter by published flag.
+        name      — Substring match on name (icontains).
+        limit     — Page size (default 200).
+
+    Returns: ``{count, results: [<compact promotion>, ...]}``.
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if state is not None:
+        params['state'] = state
+    if type is not None:
+        params['type'] = type
+    if published is not None:
+        params['published'] = 'true' if published else 'false'
+    if name is not None:
+        params['name'] = name
+    raw = client.get('/api/promotions/', params=params) or {}
+    if isinstance(raw, list):
+        return {'count': len(raw), 'results': [_compact_promotion(p) for p in raw]}
+    return {
+        'count': raw.get('count'),
+        'results': [_compact_promotion(p) for p in (raw.get('results') or [])],
+    }
+
+
+def get_promotion(client: QsaleClient, promotion_id: str) -> dict[str, Any]:
+    """Get a single Promotion by UUID. Returns the full record incl. segments,
+    settings, images, terms, value tiers.
+    """
+    return client.get(f'/api/promotions/{promotion_id}/')
+
+
+def propose_promotion_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Promotion creation for explicit approval. Does NOT write.
+
+    Required fields: ``name``, ``type`` (one of BONUS_AMOUNT, BONUS_PERCENT,
+    AMOUNT, PERCENT, GIFT, INFO). Optional: ``slug``, ``description``,
+    ``active_since``, ``active_until`` (ISO dates), ``customers``,
+    ``products``, ``outlets`` (Segment UUIDs), ``terms``, ``settings`` (dict),
+    ``priority``, ``value`` (numeric), ``published``, ``sort``. After the user
+    OKs, call ``apply_promotion_create(proposal_id)``.
+    """
+    bad = set(fields) - ALLOWED_PROMOTION_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_PROMOTION_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_PROMOTION_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+    if (t := fields.get('type')) not in PROMOTION_TYPES:
+        raise ValueError(f'Invalid type {t!r}. Allowed: {sorted(PROMOTION_TYPES)}')
+
+    p = proposals.register('promotion_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE Promotion',
+            'after': fields,
+        },
+    }
+
+
+def apply_promotion_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Promotion creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'promotion_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not promotion_create')
+    return client.post('/api/promotions/', json=p.fields)
+
+
+def propose_promotion_update(
+    client: QsaleClient,
+    promotion_id: str,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Promotion PATCH for explicit approval. Does NOT write.
+
+    Sends only the keys in ``fields``. Use this for narrow edits — toggling
+    ``published``, shifting ``active_until``, swapping the customers/products
+    segment, etc. Whitelisted fields match those of create.
+    """
+    bad = set(fields) - ALLOWED_PROMOTION_UPDATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_PROMOTION_UPDATE_FIELDS)}'
+        )
+    if (t := fields.get('type')) is not None and t not in PROMOTION_TYPES:
+        raise ValueError(f'Invalid type {t!r}. Allowed: {sorted(PROMOTION_TYPES)}')
+    current = get_promotion(client, promotion_id)
+    before = {k: current.get(k) for k in fields}
+    p = proposals.register('promotion_update', promotion_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'promotion_id': promotion_id,
+        'reason': reason,
+        'summary': {
+            'action': 'UPDATE Promotion',
+            'before': before,
+            'after': fields,
+        },
+    }
+
+
+def apply_promotion_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Promotion PATCH. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'promotion_update':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not promotion_update')
+    return client.patch(f'/api/promotions/{p.target_id}/', json=p.fields)
+
+
+def list_promotion_codes(
+    client: QsaleClient,
+    promotion_id: str | None = None,
+    is_used: bool | None = None,
+    code: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """List PromotionCodes (compact view).
+
+    Filters: ``promotion_id`` (parent Promotion UUID), ``is_used``,
+    ``code`` (exact match). ``limit`` controls page size.
+    """
+    params: dict[str, Any] = {'limit': limit}
+    if promotion_id is not None:
+        params['promotion'] = promotion_id
+    if is_used is not None:
+        params['is_used'] = 'true' if is_used else 'false'
+    if code is not None:
+        params['code'] = code
+    raw = client.get('/api/promotion-codes/', params=params) or {}
+    if isinstance(raw, list):
+        return {'count': len(raw), 'results': [_compact_promotion_code(c) for c in raw]}
+    return {
+        'count': raw.get('count'),
+        'results': [_compact_promotion_code(c) for c in (raw.get('results') or [])],
+    }
+
+
+def get_promotion_code(client: QsaleClient, code_id: str) -> dict[str, Any]:
+    """Get a single PromotionCode by UUID."""
+    return client.get(f'/api/promotion-codes/{code_id}/')
+
+
+# Register promotion apply handlers in the bulk_apply registry (forward refs:
+# the registry is defined earlier in the module before these functions exist).
+_BULK_APPLY_REGISTRY.update(
+    {
+        'promotion_create': apply_promotion_create,
+        'promotion_update': apply_promotion_update,
+    }
+)

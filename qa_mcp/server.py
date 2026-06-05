@@ -1102,6 +1102,90 @@ def apply_segment_property_choice_delete(proposal_id: str) -> dict[str, Any] | N
     return t.apply_segment_property_choice_delete(_c(), proposal_id)
 
 
+# ---------------------------------------------------------------------------
+# Promotions
+# ---------------------------------------------------------------------------
+
+
+@srv.tool()
+def list_promotions(
+    state: str | None = None,
+    type: str | None = None,
+    published: bool | None = None,
+    name: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """List promotions for the current tenant (compact view).
+
+    Filters: state (DRAFT/ACTIVE/ARCHIVED/…), type (BONUS_AMOUNT/BONUS_PERCENT/
+    AMOUNT/PERCENT/GIFT/INFO), published (bool), name (icontains).
+    """
+    return t.list_promotions(_c(), state=state, type=type, published=published, name=name, limit=limit)
+
+
+@srv.tool()
+def get_promotion(promotion_id: str) -> dict[str, Any]:
+    """Get a single Promotion by UUID. Full record (segments, settings, terms,
+    images, value tiers).
+    """
+    return t.get_promotion(_c(), promotion_id)
+
+
+@srv.tool()
+def propose_promotion_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a Promotion creation for explicit approval. Does NOT write.
+
+    Required fields: name, type (one of BONUS_AMOUNT, BONUS_PERCENT, AMOUNT,
+    PERCENT, GIFT, INFO). Optional: slug, description, active_since,
+    active_until (ISO dates), customers, products, outlets (Segment UUIDs),
+    terms, settings (dict), priority, value (numeric), published, sort.
+    After the user OKs, call apply_promotion_create(proposal_id).
+    """
+    return t.propose_promotion_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_promotion_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Promotion creation. Use only after explicit user OK."""
+    return t.apply_promotion_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_promotion_update(promotion_id: str, fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a Promotion PATCH for explicit approval. Does NOT write.
+
+    Sends only the keys in `fields`. Useful for toggling published, shifting
+    active_until, swapping the customers/products segment, etc. Whitelisted
+    fields match those of create.
+    """
+    return t.propose_promotion_update(_c(), promotion_id, fields, reason)
+
+
+@srv.tool()
+def apply_promotion_update(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Promotion PATCH. Use only after explicit user OK."""
+    return t.apply_promotion_update(_c(), proposal_id)
+
+
+@srv.tool()
+def list_promotion_codes(
+    promotion_id: str | None = None,
+    is_used: bool | None = None,
+    code: str | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """List PromotionCodes (compact view). Filter by parent promotion_id,
+    is_used, or exact code value.
+    """
+    return t.list_promotion_codes(_c(), promotion_id=promotion_id, is_used=is_used, code=code, limit=limit)
+
+
+@srv.tool()
+def get_promotion_code(code_id: str) -> dict[str, Any]:
+    """Get a single PromotionCode by UUID."""
+    return t.get_promotion_code(_c(), code_id)
+
+
 def main() -> None:
     srv.run()
 
