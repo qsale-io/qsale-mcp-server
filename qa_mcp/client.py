@@ -1,13 +1,23 @@
-"""HTTPX client for console.qsale.io API.
+"""HTTP client for the QSale REST API.
 
-Auth: Token (qa-console "@nuxtjs/auth-next" Local scheme, type: 'Token').
-Required env:
-  QSALE_API_TOKEN     — employee API token
-  QSALE_COMPANY_ID    — Company UUID (default: AIST)
-Optional env:
-  QSALE_API_BASE      — defaults to https://console.qsale.io
-  QSALE_CLIENT_TYPE   — defaults to 'WEB'
+Authentication is token-based: requests carry the ``Authorization: Token …``
+header together with the ``X-QA-Company`` tenant header. Configuration is
+sourced exclusively from environment variables so the same module image can
+be reused for any tenant / installation without code changes.
+
+Required environment:
+    QSALE_API_TOKEN     — employee API token issued in the QSale admin panel.
+    QSALE_COMPANY_ID    — Company UUID to operate against (tenant scope).
+
+Optional environment:
+    QSALE_API_BASE      — Base URL of the QSale REST API.
+                          Defaults to https://console.qsale.io (the managed
+                          QSale instance). Self-hosted installations should
+                          point this at their own console host.
+    QSALE_CLIENT_TYPE   — Value of the ``X-QA-Client-Type`` header.
+                          Defaults to ``WEB``.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,7 +26,7 @@ from typing import Any
 import httpx
 
 DEFAULT_BASE = 'https://console.qsale.io'
-AIST_COMPANY = '6d6d8a2b-34ac-4073-bd6d-bcc82e83ba86'
+DEFAULT_CLIENT_TYPE = 'WEB'
 
 
 class QsaleClient:
@@ -28,11 +38,13 @@ class QsaleClient:
         client_type: str | None = None,
     ) -> None:
         self.token = token or os.environ.get('QSALE_API_TOKEN', '')
-        self.company_id = company_id or os.environ.get('QSALE_COMPANY_ID', AIST_COMPANY)
+        self.company_id = company_id or os.environ.get('QSALE_COMPANY_ID', '')
         self.base_url = (base_url or os.environ.get('QSALE_API_BASE', DEFAULT_BASE)).rstrip('/')
-        self.client_type = client_type or os.environ.get('QSALE_CLIENT_TYPE', 'WEB')
+        self.client_type = client_type or os.environ.get('QSALE_CLIENT_TYPE', DEFAULT_CLIENT_TYPE)
         if not self.token:
             raise RuntimeError('QSALE_API_TOKEN env var is required')
+        if not self.company_id:
+            raise RuntimeError('QSALE_COMPANY_ID env var is required')
         self._http = httpx.Client(
             base_url=self.base_url,
             headers={

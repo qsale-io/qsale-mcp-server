@@ -3,6 +3,7 @@
 Fields whitelisted for update_category are limited to SEO-relevant ones
 to minimise blast radius of accidental writes.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -12,7 +13,7 @@ from .client import QsaleClient
 
 # Fields allowed in update_category — anything else is rejected.
 ALLOWED_CATEGORY_FIELDS = {
-    'parent',          # UUID string or None — reparent
+    'parent',  # UUID string or None — reparent
     'slug',
     'name',
     'title',
@@ -21,7 +22,7 @@ ALLOWED_CATEGORY_FIELDS = {
     'meta_description',
     'published',
     'sort',
-    'group',           # ProductCategoryGroup UUID or None — admin tree placement
+    'group',  # ProductCategoryGroup UUID or None — admin tree placement
 }
 
 # Fields allowed in update_redirect.
@@ -46,10 +47,10 @@ ALLOWED_REDIRECT_SITE_FIELDS = {
 # Fields allowed in navigation-item create/update proposals.
 ALLOWED_NAVIGATION_ITEM_FIELDS = {
     'name',
-    'group',            # NavigationGroup UUID
-    'parent',           # parent NavigationItem UUID or None
-    'type',             # ContentItemType: LINK / PAGE / PRODUCT_CATEGORY / ...
-    'value',            # object UUID for content types, external URL for LINK
+    'group',  # NavigationGroup UUID
+    'parent',  # parent NavigationItem UUID or None
+    'type',  # ContentItemType: LINK / PAGE / PRODUCT_CATEGORY / ...
+    'value',  # object UUID for content types, external URL for LINK
     'published',
     'sort',
     'is_template',
@@ -74,11 +75,11 @@ ALLOWED_PAGE_FIELDS = {
 ALLOWED_MAIL_TEMPLATE_FIELDS = {
     'name',
     'category',
-    'promotion',   # Promotion UUID or None — binds PROMOTION_* template vars
+    'promotion',  # Promotion UUID or None — binds PROMOTION_* template vars
     'subject',
-    'text',        # plain-text body (required by the model)
-    'html',        # optional HTML body
-    'context',     # dict of template-level context overrides
+    'text',  # plain-text body (required by the model)
+    'html',  # optional HTML body
+    'context',  # dict of template-level context overrides
 }
 
 # Minimum fields required to create a MailTemplate.
@@ -90,12 +91,12 @@ MAIL_TEMPLATE_CATEGORIES = {'SYSTEM', 'TRANSACTIONAL', 'PROMOTIONAL', 'PERSONAL'
 # Fields allowed in promotion-trigger create proposals.
 ALLOWED_PROMOTION_TRIGGER_FIELDS = {
     'name',
-    'promotion',       # Promotion UUID (required for code generation / PROMOTION_* vars)
-    'category',        # e.g. REGISTRATION / BIRTHDAY / PURCHASE / ORDER_DONE / ...
-    'mail_template',   # MailTemplate UUID (nullable)
-    'sms_template',    # ShortMessageTemplate UUID (nullable)
-    'push_template',   # PushTemplate UUID (nullable)
-    'values',          # dict matching the category's field definitions
+    'promotion',  # Promotion UUID (required for code generation / PROMOTION_* vars)
+    'category',  # e.g. REGISTRATION / BIRTHDAY / PURCHASE / ORDER_DONE / ...
+    'mail_template',  # MailTemplate UUID (nullable)
+    'sms_template',  # ShortMessageTemplate UUID (nullable)
+    'push_template',  # PushTemplate UUID (nullable)
+    'values',  # dict matching the category's field definitions
 }
 
 # Minimum fields required to create a PromotionTrigger (per WritePromotionTriggerSerializer).
@@ -275,10 +276,7 @@ def propose_page_update(
         'proposal_id': p.id,
         'page_id': page_id,
         'reason': reason,
-        'changes': [
-            {'field': k, 'before': before[k], 'after': fields[k]}
-            for k in fields
-        ],
+        'changes': [{'field': k, 'before': before[k], 'after': fields[k]} for k in fields],
     }
 
 
@@ -679,8 +677,11 @@ def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
     """Inspect pending proposals (in-memory, lost on server restart)."""
     return [
         {
-            'id': p.id, 'kind': p.kind, 'target_id': p.target_id,
-            'fields': list(p.fields.keys()), 'reason': p.reason,
+            'id': p.id,
+            'kind': p.kind,
+            'target_id': p.target_id,
+            'fields': list(p.fields.keys()),
+            'reason': p.reason,
             'created_at': p.created_at,
         }
         for p in proposals.list_pending(kind)
@@ -743,8 +744,12 @@ def _compact_promotion_trigger(t: dict[str, Any]) -> dict[str, Any]:
         'name': t.get('name'),
         'category': t.get('category') or trig.get('category'),
         'promotion': t.get('promotion'),
-        'mail_template': t.get('mail_template', {}).get('id') if isinstance(t.get('mail_template'), dict) else t.get('mail_template'),
-        'sms_template': t.get('sms_template', {}).get('id') if isinstance(t.get('sms_template'), dict) else t.get('sms_template'),
+        'mail_template': t.get('mail_template', {}).get('id')
+        if isinstance(t.get('mail_template'), dict)
+        else t.get('mail_template'),
+        'sms_template': t.get('sms_template', {}).get('id')
+        if isinstance(t.get('sms_template'), dict)
+        else t.get('sms_template'),
         'values': t.get('values'),
     }
 
@@ -814,8 +819,9 @@ REQUIRED_SEGMENT_FILTER_CREATE_FIELDS = {'segment', 'property', 'operator', 'val
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — Dictionaries
+# Read tools — Dictionaries
 # ---------------------------------------------------------------------------
+
 
 def list_dictionaries(client: QsaleClient, limit: int = 200) -> list[dict[str, Any]]:
     """List Dictionary rows for the current tenant."""
@@ -852,8 +858,9 @@ def get_dictionary_item(client: QsaleClient, item_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — Segments
+# Read tools — Segments
 # ---------------------------------------------------------------------------
+
 
 def list_segments(
     client: QsaleClient,
@@ -915,8 +922,9 @@ def get_segment_filter(client: QsaleClient, filter_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — M2M list views (NEW endpoints)
+# Read tools — M2M list views (NEW endpoints)
 # ---------------------------------------------------------------------------
+
 
 def list_pc_segments(client: QsaleClient, category_id: str) -> list[dict[str, Any]]:
     """List Segments linked to a ProductCategory (NEW endpoint on qa-server)."""
@@ -933,8 +941,9 @@ def list_di_segments(client: QsaleClient, dictionary_item_id: str) -> list[dict[
 
 
 # ---------------------------------------------------------------------------
-# §FR-2 Category write tools
+# Category write tools
 # ---------------------------------------------------------------------------
+
 
 def propose_category_create(
     client: QsaleClient,
@@ -950,9 +959,7 @@ def propose_category_create(
     """
     bad = set(fields) - ALLOWED_CATEGORY_CREATE_FIELDS
     if bad:
-        raise ValueError(
-            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_CATEGORY_CREATE_FIELDS)}'
-        )
+        raise ValueError(f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_CATEGORY_CREATE_FIELDS)}')
     missing = REQUIRED_CATEGORY_CREATE_FIELDS - set(fields)
     if missing:
         raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
@@ -1020,8 +1027,9 @@ def apply_category_delete(client: QsaleClient, proposal_id: str) -> dict[str, An
 
 
 # ---------------------------------------------------------------------------
-# §FR-2 DictionaryItem write tools
+# DictionaryItem write tools
 # ---------------------------------------------------------------------------
+
 
 def propose_dictionary_item_create(
     client: QsaleClient,
@@ -1099,8 +1107,9 @@ def apply_dictionary_item_delete(client: QsaleClient, proposal_id: str) -> dict[
 
 
 # ---------------------------------------------------------------------------
-# §FR-3 Segment write tools
+# Segment write tools
 # ---------------------------------------------------------------------------
+
 
 def propose_segment_create(
     client: QsaleClient,
@@ -1178,8 +1187,9 @@ def apply_segment_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any
 
 
 # ---------------------------------------------------------------------------
-# §FR-3 SegmentFilter write tools
+# SegmentFilter write tools
 # ---------------------------------------------------------------------------
+
 
 def propose_segment_filter_create(
     client: QsaleClient,
@@ -1231,10 +1241,9 @@ def propose_segment_filter_update(
 ) -> dict[str, Any]:
     """Stage a SegmentFilter value update for explicit approval. Does NOT write.
 
-    Fetches current filter (NEW endpoint) to build before/after diff. `value` is
-    a JSON array for IN/NOT_IN operators (list of Sletat resort IDs etc.) or a
-    scalar for EQ/GTE/LTE. After the user OKs, call
-    apply_segment_filter_update(proposal_id).
+    Fetches the current filter to build a before/after diff. `value` is a JSON
+    array for IN/NOT_IN operators or a scalar for EQ/GTE/LTE. After the user OKs,
+    call apply_segment_filter_update(proposal_id).
     """
     current = get_segment_filter(client, filter_id)
     before_value = current.get('value')
@@ -1297,8 +1306,9 @@ def apply_segment_filter_delete(client: QsaleClient, proposal_id: str) -> dict[s
 
 
 # ---------------------------------------------------------------------------
-# §FR-4 M2M link/unlink tools — DictionaryItem ↔ Segment
+# M2M link/unlink tools — DictionaryItem ↔ Segment
 # ---------------------------------------------------------------------------
+
 
 def propose_link_di_segment(
     client: QsaleClient,
@@ -1367,14 +1377,13 @@ def apply_unlink_di_segment(client: QsaleClient, proposal_id: str) -> dict[str, 
     p = proposals.pop(proposal_id)
     if p.kind != 'unlink_di_segment':
         raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not unlink_di_segment')
-    return client.delete(
-        f'/api/dictionary-items/{p.target_id}/segments/{p.fields["segment_id"]}/'
-    )
+    return client.delete(f'/api/dictionary-items/{p.target_id}/segments/{p.fields["segment_id"]}/')
 
 
 # ---------------------------------------------------------------------------
-# §FR-4 M2M link/unlink tools — ProductCategory ↔ Segment
+# M2M link/unlink tools — ProductCategory ↔ Segment
 # ---------------------------------------------------------------------------
+
 
 def propose_link_pc_segment(
     client: QsaleClient,
@@ -1443,14 +1452,13 @@ def apply_unlink_pc_segment(client: QsaleClient, proposal_id: str) -> dict[str, 
     p = proposals.pop(proposal_id)
     if p.kind != 'unlink_pc_segment':
         raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not unlink_pc_segment')
-    return client.delete(
-        f'/api/product-categories/{p.target_id}/segments/{p.fields["segment_id"]}/'
-    )
+    return client.delete(f'/api/product-categories/{p.target_id}/segments/{p.fields["segment_id"]}/')
 
 
 # ---------------------------------------------------------------------------
-# §FR-5 Task trigger tools
+# Task trigger tools
 # ---------------------------------------------------------------------------
+
 
 def propose_run_update_all_dicts(
     client: QsaleClient,
@@ -1542,9 +1550,7 @@ def apply_run_set_category_for_products(client: QsaleClient, proposal_id: str) -
     """Apply a previously-staged set_category_for_products task trigger. Single-use."""
     p = proposals.pop(proposal_id)
     if p.kind != 'run_set_category_for_products':
-        raise ValueError(
-            f'Proposal {proposal_id} is kind={p.kind!r}, not run_set_category_for_products'
-        )
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not run_set_category_for_products')
     return client.post(
         '/api/tasks/set-category-for-products/',
         json={'category_id': p.fields['category_id']},
@@ -1554,6 +1560,7 @@ def apply_run_set_category_for_products(client: QsaleClient, proposal_id: str) -
 # ---------------------------------------------------------------------------
 # Compact helpers for new types
 # ---------------------------------------------------------------------------
+
 
 def _compact_dictionary_item(i: dict[str, Any]) -> dict[str, Any]:
     """Trim DictionaryItem to list-view essentials."""
@@ -1706,7 +1713,7 @@ def get_product(client: QsaleClient, product_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-4 Dictionary write tools
+# Dictionary write tools
 # ---------------------------------------------------------------------------
 
 ALLOWED_DICTIONARY_CREATE_FIELDS = {
@@ -1797,7 +1804,7 @@ def apply_dictionary_delete(client: QsaleClient, proposal_id: str) -> dict[str, 
 
 
 # ---------------------------------------------------------------------------
-# §FR-5 SegmentProperty write tools
+# SegmentProperty write tools
 # ---------------------------------------------------------------------------
 
 ALLOWED_SEGMENT_PROPERTY_CREATE_FIELDS = {
@@ -1948,7 +1955,7 @@ def apply_segment_property_delete(client: QsaleClient, proposal_id: str) -> dict
 
 
 # ---------------------------------------------------------------------------
-# §FR-6 SegmentPropertyChoice tools
+# SegmentPropertyChoice tools
 # ---------------------------------------------------------------------------
 
 ALLOWED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS = {
@@ -2012,9 +2019,7 @@ def apply_segment_property_choice_create(client: QsaleClient, proposal_id: str) 
     """Apply a previously-staged SegmentPropertyChoice creation. Single-use."""
     p = proposals.pop(proposal_id)
     if p.kind != 'segment_property_choice_create':
-        raise ValueError(
-            f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_create'
-        )
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_create')
     return client.post('/api/segment-property-choices/', json=p.fields)
 
 
@@ -2046,7 +2051,5 @@ def apply_segment_property_choice_delete(client: QsaleClient, proposal_id: str) 
     """Apply a previously-staged SegmentPropertyChoice deletion. Single-use."""
     p = proposals.pop(proposal_id)
     if p.kind != 'segment_property_choice_delete':
-        raise ValueError(
-            f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_delete'
-        )
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_delete')
     return client.delete(f'/api/segment-property-choices/{p.target_id}/')

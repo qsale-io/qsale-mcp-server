@@ -1,12 +1,18 @@
-"""MCP server entry: exposes qsale console REST API tools over stdio.
+"""MCP server entry point: exposes the QSale REST API as MCP tools over stdio.
 
 Launch:
   python -m qa_mcp.server
 
-Required env:
-  QSALE_API_TOKEN   employee token
-  QSALE_COMPANY_ID  Company UUID (default: AIST)
+Required environment:
+  QSALE_API_TOKEN     Employee API token.
+  QSALE_COMPANY_ID    Company UUID to operate against (tenant scope).
+
+Optional environment:
+  QSALE_API_BASE      Base URL of the QSale REST API.
+                      Defaults to https://console.qsale.io.
+  QSALE_CLIENT_TYPE   Value of the X-QA-Client-Type header. Defaults to ``WEB``.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from . import tools as t
 from .client import QsaleClient
 
-srv = FastMCP('qa-catalog')
+srv = FastMCP('qsale')
 
 # Lazy singleton — only created when first tool is called.
 _client: QsaleClient | None = None
@@ -104,9 +110,15 @@ def create_redirect(
     content_type: Optional semantic hint (e.g. 'catalog.productcategory').
     """
     return t.create_redirect(
-        _c(), site_id, url, target_url,
-        is_permanent=is_permanent, priority=priority,
-        is_template=is_template, host=host, content_type=content_type,
+        _c(),
+        site_id,
+        url,
+        target_url,
+        is_permanent=is_permanent,
+        priority=priority,
+        is_template=is_template,
+        host=host,
+        content_type=content_type,
     )
 
 
@@ -124,7 +136,7 @@ def update_redirect(redirect_id: str, fields: dict[str, Any]) -> dict[str, Any]:
 def create_redirect_site(host: str, main_site: str | None = None, is_enabled: bool = True) -> dict[str, Any]:
     """Create one RedirectSite for the current tenant.
 
-    host: fully-qualified hostname, no scheme/port (e.g. 'aist.travel').
+    host: fully-qualified hostname, no scheme/port (e.g. 'example.com').
     main_site: UUID of an existing root site to make this an alias of.
     is_enabled: defaults to True.
     """
@@ -430,8 +442,9 @@ def list_proposals(kind: str | None = None) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — Dictionaries
+# Read tools — Dictionaries
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def list_dictionaries(limit: int = 200) -> list[dict[str, Any]]:
@@ -466,8 +479,9 @@ def get_dictionary_item(item_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — Segments
+# Read tools — Segments
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def list_segments(
@@ -526,8 +540,9 @@ def get_segment_filter(filter_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-1 Read tools — M2M list views (NEW endpoints)
+# Read tools — M2M list views (NEW endpoints)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def list_pc_segments(category_id: str) -> list[dict[str, Any]]:
@@ -550,8 +565,9 @@ def list_di_segments(dictionary_item_id: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-2 Category write tools (propose/apply)
+# Category write tools (propose/apply)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_category_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
@@ -594,6 +610,7 @@ def apply_category_delete(proposal_id: str) -> dict[str, Any] | None:
 # Bulk apply: one approval covers N already-staged proposals of any kind
 # ---------------------------------------------------------------------------
 
+
 @srv.tool()
 def bulk_apply(proposal_ids: list[str]) -> dict[str, Any]:
     """Apply N already-staged proposals of any kind in order. ONE approval.
@@ -610,8 +627,9 @@ def bulk_apply(proposal_ids: list[str]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# §FR-2 DictionaryItem write tools (propose/apply)
+# DictionaryItem write tools (propose/apply)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_dictionary_item_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
@@ -649,8 +667,9 @@ def apply_dictionary_item_delete(proposal_id: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# §FR-3 Segment write tools (propose/apply)
+# Segment write tools (propose/apply)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_segment_create(
@@ -694,8 +713,9 @@ def apply_segment_delete(proposal_id: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# §FR-3 SegmentFilter write tools (propose/apply)
+# SegmentFilter write tools (propose/apply)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_segment_filter_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
@@ -720,10 +740,9 @@ def apply_segment_filter_create(proposal_id: str) -> dict[str, Any]:
 def propose_segment_filter_update(filter_id: str, value: Any, reason: str = '') -> dict[str, Any]:
     """Stage a SegmentFilter value update for explicit approval. Does NOT write.
 
-    Fetches the current filter (via NEW endpoint) to build a before/after diff.
-    `value`: list for IN/NOT_IN operators (e.g. [12345, 67890] for Sletat resort
-    IDs), scalar for EQ/GTE/LTE. After the user OKs, call
-    apply_segment_filter_update(proposal_id).
+    Fetches the current filter to build a before/after diff.
+    `value`: list for IN/NOT_IN operators (e.g. ``[12345, 67890]``), scalar for
+    EQ/GTE/LTE. After the user OKs, call apply_segment_filter_update(proposal_id).
     """
     return t.propose_segment_filter_update(_c(), filter_id, value, reason)
 
@@ -751,8 +770,9 @@ def apply_segment_filter_delete(proposal_id: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# §FR-4 M2M link/unlink tools — DictionaryItem ↔ Segment
+# M2M link/unlink tools — DictionaryItem ↔ Segment
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_link_di_segment(
@@ -773,7 +793,7 @@ def apply_link_di_segment(proposal_id: str) -> dict[str, Any]:
     """Apply a previously-staged DI↔Segment link. Use only after explicit user OK.
 
     Returns 201 {status: 'linked'} on success, 200 {status: 'already_linked'} if
-    the link already exists (ADR-2).
+    the link already exists .
     """
     return t.apply_link_di_segment(_c(), proposal_id)
 
@@ -799,8 +819,9 @@ def apply_unlink_di_segment(proposal_id: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# §FR-4 M2M link/unlink tools — ProductCategory ↔ Segment
+# M2M link/unlink tools — ProductCategory ↔ Segment
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_link_pc_segment(
@@ -822,7 +843,7 @@ def apply_link_pc_segment(proposal_id: str) -> dict[str, Any]:
     """Apply a previously-staged PC↔Segment link. Use only after explicit user OK.
 
     Returns 201 {status: 'linked'} on success, 200 {status: 'already_linked'} if
-    the link already exists (ADR-2).
+    the link already exists .
     """
     return t.apply_link_pc_segment(_c(), proposal_id)
 
@@ -848,8 +869,9 @@ def apply_unlink_pc_segment(proposal_id: str) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# §FR-5 Task trigger tools (propose/apply)
+# Task trigger tools (propose/apply)
 # ---------------------------------------------------------------------------
+
 
 @srv.tool()
 def propose_run_update_all_dicts(reason: str = '') -> dict[str, Any]:
@@ -958,6 +980,7 @@ def get_product(product_id: str) -> dict[str, Any]:
 # Dictionary write tools
 # ---------------------------------------------------------------------------
 
+
 @srv.tool()
 def propose_dictionary_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
     """Stage a Dictionary creation for explicit approval. Does NOT write.
@@ -991,6 +1014,7 @@ def apply_dictionary_delete(proposal_id: str) -> dict[str, Any] | None:
 # SegmentProperty write tools
 # ---------------------------------------------------------------------------
 
+
 @srv.tool()
 def propose_segment_property_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
     """Stage a SegmentProperty creation for explicit approval. Does NOT write.
@@ -1010,9 +1034,7 @@ def apply_segment_property_create(proposal_id: str) -> dict[str, Any]:
 
 
 @srv.tool()
-def propose_segment_property_update(
-    property_id: str, fields: dict[str, Any], reason: str = ''
-) -> dict[str, Any]:
+def propose_segment_property_update(property_id: str, fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
     """Stage a SegmentProperty PATCH for explicit approval. Does NOT write.
 
     Sends only the keys in `fields`. Useful when reshaping a property — e.g.
@@ -1044,18 +1066,15 @@ def apply_segment_property_delete(proposal_id: str) -> dict[str, Any] | None:
 # SegmentPropertyChoice tools
 # ---------------------------------------------------------------------------
 
+
 @srv.tool()
-def list_segment_property_choices(
-    segment_property_id: str | None = None, limit: int = 200
-) -> list[dict[str, Any]]:
+def list_segment_property_choices(segment_property_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
     """List SegmentPropertyChoice rows. Filter by parent property UUID."""
     return t.list_segment_property_choices(_c(), segment_property_id, limit)
 
 
 @srv.tool()
-def propose_segment_property_choice_create(
-    fields: dict[str, Any], reason: str = ''
-) -> dict[str, Any]:
+def propose_segment_property_choice_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
     """Stage a SegmentPropertyChoice creation for explicit approval. Does NOT write.
 
     Required fields: segment_property (UUID of parent property), value. Optional:

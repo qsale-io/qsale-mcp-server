@@ -1,228 +1,178 @@
-# qsale-mcp-server
+# qsale-mcp
 
-MCP tool server bridging Claude Code / AI agents to the [qsale console REST API](https://console.qsale.io).
+[Model Context Protocol](https://modelcontextprotocol.io) server for the
+[QSale](https://qsale.io) headless commerce platform.
 
-## Setup
+Lets an LLM (Claude Code, Claude Desktop, Cursor, any MCP-compatible client)
+operate a QSale tenant through the same REST API the admin panel uses:
+catalog, content pages, navigation, segments, dictionaries, mailings,
+promotion triggers, redirects, and admin task triggers.
+
+All write operations follow a **propose → review → apply** pattern: the
+model first stages the change and returns a before/after diff for you to
+read; nothing hits the backend until you say so.
+
+---
+
+## Installation
+
+Requires Python 3.11+.
 
 ```bash
-pip install -e .
+pip install git+https://github.com/qsale-io/qsale-mcp-server.git
 ```
 
-Required env vars:
-
-| Variable | Description | Default |
-|---|---|---|
-| `QSALE_API_TOKEN` | Employee API token | — (required) |
-| `QSALE_COMPANY_ID` | Company UUID | AIST (`6d6d8a2b-...`) |
-| `QSALE_API_BASE` | qa-server base URL | `https://console.qsale.io` |
-| `QSALE_CLIENT_TYPE` | Client type header | `WEB` |
-
-## Launch
+Or with [uv](https://github.com/astral-sh/uv):
 
 ```bash
-python -m qa_mcp.server
+uvx --from git+https://github.com/qsale-io/qsale-mcp-server.git qsale-mcp
 ```
 
-Or via `mcp` CLI in your Claude Desktop config:
+## Configuration
+
+The server reads its configuration from environment variables — no flags,
+no config files.
+
+| Variable             | Required | Default                       | Purpose                                |
+| -------------------- | -------- | ----------------------------- | -------------------------------------- |
+| `QSALE_API_TOKEN`    | yes      | —                             | Employee API token                     |
+| `QSALE_COMPANY_ID`   | yes      | —                             | Company UUID (tenant scope)            |
+| `QSALE_API_BASE`     | no       | `https://console.qsale.io`    | Base URL of the QSale REST API         |
+| `QSALE_CLIENT_TYPE`  | no       | `WEB`                         | Value of the `X-QA-Client-Type` header |
+
+### Obtaining a token and a company id
+
+1. Sign in to your QSale admin panel.
+2. Open *Settings → API tokens* and create a new employee token. Save it
+   somewhere safe — it is shown only once.
+3. The company UUID is visible in the admin URL or under
+   *Settings → Company*.
+
+Self-hosted installations override `QSALE_API_BASE` to point at their own
+console host (e.g. `https://console.example.com`).
+
+### Wiring into Claude Code
+
+Add to your `.mcp.json` (or the global Claude Code MCP config):
 
 ```json
 {
   "mcpServers": {
-    "qa-catalog": {
-      "command": "python",
-      "args": ["-m", "qa_mcp.server"],
+    "qsale": {
+      "command": "qsale-mcp",
       "env": {
-        "QSALE_API_TOKEN": "your-token",
-        "QSALE_COMPANY_ID": "your-company-uuid"
+        "QSALE_API_TOKEN": "your-token-here",
+        "QSALE_COMPANY_ID": "00000000-0000-0000-0000-000000000000"
       }
     }
   }
 }
 ```
 
-## Architecture
+For Claude Desktop, the configuration file lives at
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+or `%APPDATA%\Claude\claude_desktop_config.json` (Windows) with the same
+`mcpServers` shape.
 
-All writes go through an **in-memory propose/apply flow**:
+## Available tools
 
-1. `propose_*()` — validates input, fetches current state for diff, registers an in-memory `Proposal`, returns `proposal_id` + human-readable before/after.
-2. Human reviews the diff and says OK.
-3. `apply_*()` — consumes the proposal (single-use), executes the REST call.
+The server registers ~100 tools, grouped by domain. See the source files
+or the model's `tools/list` output for the full list; below is the high
+level shape.
 
-Proposals are lost on server restart by design (short-lived, no persistence needed).
+### Read
 
-## Tool catalogue
+Listing and detail tools for:
 
-### Categories & ProductCategory
+- Product categories, products
+- Content pages
+- Navigation groups and items
+- URL redirects and redirect sites
+- Mail templates and template images
+- Promotion triggers and trigger categories
+- Dictionaries and dictionary items
+- Segments, segment properties, segment filters, segment property choices
+- Frontend settings
 
-| Tool | Description |
-|---|---|
-| `list_categories` | List ProductCategory rows. Filter by `parent_id` or `slug`. |
-| `get_category` | Get a single category by UUID. |
-| `update_category` | PATCH a category (whitelisted fields: parent, slug, name, title, description, meta_title, meta_description, published, sort). |
-| `propose_category_create` | Stage a new category (name + slug required). |
-| `apply_category_create` | Apply staged category creation. |
+### Write — propose / apply
 
-### Dictionaries
+Two-phase writes that stage the change in memory, return a diff, and only
+hit the backend when `apply_*` is called. Cover:
 
-| Tool | Description |
-|---|---|
-| `list_dictionaries` | List Dictionary rows for the tenant. |
-| `get_dictionary` | Get a single Dictionary by UUID (incl. `allowed_segment_models`). |
-| `list_dictionary_items` | List DictionaryItems. Filter by `dictionary_id` and/or `search`. |
-| `get_dictionary_item` | Get a single DictionaryItem by UUID. |
-| `propose_dictionary_item_create` | Stage a new DictionaryItem (`dictionary`, `name` required; `data` for Sletat IDs etc.). |
-| `apply_dictionary_item_create` | Apply staged DictionaryItem creation. |
-| `propose_dictionary_item_delete` | Stage a DictionaryItem deletion (shows name + dictionary as before-state). |
-| `apply_dictionary_item_delete` | Apply staged deletion. |
+- `propose/apply_page_update`
+- `propose/apply_navigation_item_create + update`
+- `propose/apply_category_create + delete`
+- `propose/apply_mail_template_create + update`
+- `propose/apply_promotion_trigger_create`
+- `propose/apply_dictionary_create + delete`
+- `propose/apply_dictionary_item_create + delete`
+- `propose/apply_segment_create + delete`
+- `propose/apply_segment_property_create + update + delete`
+- `propose/apply_segment_property_choice_create + delete`
+- `propose/apply_segment_filter_create + update + delete`
+- `propose/apply_link_di_segment + unlink_di_segment`
+- `propose/apply_link_pc_segment + unlink_pc_segment`
 
-### Segments
+### Admin task triggers
 
-| Tool | Description |
-|---|---|
-| `list_segments` | List Segments. Filter by `model_id` and/or `search`. |
-| `get_segment` | Get a single Segment by UUID. |
-| `propose_segment_create` | Stage a new Segment (`model_id`, `name`). |
-| `apply_segment_create` | Apply staged Segment creation. |
-| `propose_segment_delete` | Stage a Segment deletion (shows name + filter count warning). |
-| `apply_segment_delete` | Apply staged deletion. |
+Schedule asynchronous backend tasks via the admin task endpoints:
 
-### SegmentProperties & SegmentFilters
+- `propose/apply_run_update_all_dicts`
+- `propose/apply_run_update_dict`
+- `propose/apply_run_set_category_for_products`
 
-| Tool | Description |
-|---|---|
-| `list_segment_properties` | List SegmentProperties. Filter by `model_id`. Use to find valid property UUIDs and allowed operators. |
-| `get_segment_property` | Get a single SegmentProperty by UUID. |
-| `list_segment_filters` | List SegmentFilters. Filter by `segment_id`. |
-| `get_segment_filter` | Get a single SegmentFilter by UUID. |
-| `propose_segment_filter_create` | Stage a new filter (`segment`, `property`, `operator`, `value` required). |
-| `apply_segment_filter_create` | Apply staged filter creation. |
-| `propose_segment_filter_update` | Stage a filter `value` update (fetches current value for before/after diff). |
-| `apply_segment_filter_update` | Apply staged filter update. |
-| `propose_segment_filter_delete` | Stage a filter deletion (shows segment/property/operator/value as before-state). |
-| `apply_segment_filter_delete` | Apply staged deletion. |
+### Direct writes (no two-phase)
 
-### M2M Links — DictionaryItem ↔ Segment
+Idempotent or low-impact operations are exposed as single calls:
 
-| Tool | Description |
-|---|---|
-| `list_di_segments` | List Segments linked to a DictionaryItem. |
-| `propose_link_di_segment` | Stage a link (server validates model compatibility). |
-| `apply_link_di_segment` | Apply: POST `.../segments/` → 201 linked / 200 already_linked. |
-| `propose_unlink_di_segment` | Stage an unlink (shows current links as before-state). |
-| `apply_unlink_di_segment` | Apply: DELETE `.../segments/{segment_id}/` → 204. |
+- `create_redirect`, `update_redirect`, `create_redirect_site`, `update_redirect_site`
+- `update_category`
+- `update_frontend_setting_json`, `set_frontend_setting_file`
+- `create_mail_template_image`
 
-### M2M Links — ProductCategory ↔ Segment
+### Batch
 
-| Tool | Description |
-|---|---|
-| `list_pc_segments` | List Segments linked to a ProductCategory. |
-| `propose_link_pc_segment` | Stage a link. |
-| `apply_link_pc_segment` | Apply: POST `.../segments/` → 201 linked / 200 already_linked. |
-| `propose_unlink_pc_segment` | Stage an unlink (shows current links as before-state). |
-| `apply_unlink_pc_segment` | Apply: DELETE `.../segments/{segment_id}/` → 204. |
+- `bulk_apply([proposal_ids])` — one approval covers N already-staged
+  proposals of any kind. Stops on the first failure and returns
+  per-proposal results.
 
-### Task Triggers (Celery)
-
-| Tool | Description |
-|---|---|
-| `propose_run_update_all_dicts` | Stage an `update_all_dicts` task enqueue (Singleton — self-deduplicates). |
-| `apply_run_update_all_dicts` | Apply: POST `/api/tasks/update-all-dicts/` → 202 queued. |
-| `propose_run_set_category_for_products` | Stage a `set_category_for_products` task for a specific category. |
-| `apply_run_set_category_for_products` | Apply: POST `/api/tasks/set-category-for-products/` → 202 queued. |
-
-### Redirects
-
-| Tool | Description |
-|---|---|
-| `list_redirect_sites` | List RedirectSite entries. |
-| `create_redirect_site` | Create a RedirectSite. |
-| `update_redirect_site` | PATCH a RedirectSite. |
-| `list_redirects` | List UrlRedirects. Filter by `site_id` / `url`. |
-| `create_redirect` | Create a UrlRedirect. |
-| `update_redirect` | PATCH a UrlRedirect. |
-
-### Pages
-
-| Tool | Description |
-|---|---|
-| `list_pages` | List Pages (SEO landing pages). Filter by `slug`. |
-| `get_page` | Get full Page record by UUID. |
-| `propose_page_update` | Stage a Page PATCH (meta_title, meta_description, meta_keywords, canonical_url, title, body). |
-| `apply_page_update` | Apply staged Page update. |
-
-### Navigation
-
-| Tool | Description |
-|---|---|
-| `list_navigation_groups` | List NavigationGroup containers (header, footer, …). |
-| `list_navigation_items` | List NavigationItems. Filter by group, parent, type. |
-| `get_navigation_item` | Get a single NavigationItem. |
-| `propose_navigation_item_create` | Stage a new NavigationItem. |
-| `apply_navigation_item_create` | Apply staged creation. |
-| `propose_navigation_item_update` | Stage a NavigationItem PATCH. |
-| `apply_navigation_item_update` | Apply staged update. |
-
-### Mail Templates
-
-| Tool | Description |
-|---|---|
-| `list_mail_templates` | List MailTemplates (compact; bodies shown as char counts). |
-| `get_mail_template` | Get full MailTemplate by UUID. |
-| `propose_mail_template_create` | Stage a new MailTemplate. |
-| `apply_mail_template_create` | Apply staged creation. |
-| `propose_mail_template_update` | Stage a MailTemplate PATCH. |
-| `apply_mail_template_update` | Apply staged update. |
-| `list_mail_template_images` | List MailTemplateImages. |
-| `create_mail_template_image` | Attach an image to a MailTemplate (base64 or local file). |
-
-### Promotion Triggers
-
-| Tool | Description |
-|---|---|
-| `list_trigger_categories` | List promotion-trigger categories and their configurable field names. |
-| `list_promotion_triggers` | List PromotionTriggers. Filter by promotion, category. |
-| `get_promotion_trigger` | Get a single PromotionTrigger. |
-| `propose_promotion_trigger_create` | Stage a new PromotionTrigger. |
-| `apply_promotion_trigger_create` | Apply staged creation. |
-
-### Frontend Settings
-
-| Tool | Description |
-|---|---|
-| `list_frontend_settings` | List all frontend settings (group, key, type, value). |
-| `get_frontend_setting` | Get one setting by key (incl. schema). |
-| `update_frontend_setting_json` | Update a json-typed setting. Direct write — get user OK first. |
-| `set_frontend_setting_file` | Upload a file-typed setting (logo, etc.). Direct write — get user OK first. |
-
-### Proposal Management
-
-| Tool | Description |
-|---|---|
-| `list_proposals` | Inspect pending proposals (lost on server restart). Filter by `kind`. |
-
-## Turkey Resort Batch — worked example
-
-Creating one resort entry (e.g. "Kemer") with full segment linkage:
+## How writes work
 
 ```
-1. get_dictionary(sletat_dict_id)
-2. propose_dictionary_item_create({dictionary: ..., name: "Kemer", data: {sletat_id: 12345}}) → apply
-3. propose_segment_create(product_model_id, "ResortId — Kemer A") → apply
-4. propose_segment_filter_create({segment: seg_a_id, property: resortid_prop_id, operator: "IN", value: [12345]}) → apply
-5. propose_link_di_segment(di_id, seg_a_id) → apply
-6. propose_segment_create(product_model_id, "ResortId — Kemer B") → apply
-7. propose_segment_filter_create({segment: seg_b_id, property: resortid_prop_id, operator: "IN", value: [12345]}) → apply
-8. propose_category_create({parent: turkey_cat_id, name: "Кемер", slug: "kemer"}) → apply
-9. propose_link_pc_segment(cat_id, seg_b_id) → apply
-
-After all 58 resorts:
-10. propose_run_update_all_dicts() → apply
-11. propose_run_set_category_for_products(turkey_parent_id) → apply
+propose_* ──► in-memory Proposal{ id, kind, fields, before }  (no HTTP write)
+                       │
+                       ▼
+            you read the diff in chat
+                       │
+                       ▼
+apply_*  ──► REST POST/PATCH/DELETE on console.qsale.io
 ```
 
-## Notes
+Proposals live only in process memory — restarting the MCP server discards
+them. This is intentional: a stale proposal should never be reused after
+a code reload.
 
-- **Multitenancy:** every REST call carries `X-QA-Company` header (from `QSALE_COMPANY_ID`). Cross-tenant access returns 404.
-- **Errors:** HTTP 4xx/5xx from qa-server are returned as `"HTTP {status}: {body[:500]}"` — never swallowed.
-- **New endpoints** (`list_segment_filters`, `get_segment_filter`, PC↔Segment m2m, DI↔Segment m2m, task triggers) require qa-server branch `feat/qsale-24-mcp-catalog-api` (MR !515) to be deployed.
-- **No tests** in this repo (pure thin HTTP proxy; integration-tested via qa-server's 32-test suite in MR !515).
+## Development
+
+```bash
+git clone https://github.com/qsale-io/qsale-mcp-server.git
+cd qsale-mcp-server
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+ruff check .
+pytest
+```
+
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org). See
+[CHANGELOG.md](./CHANGELOG.md) for release notes.
+
+## Security
+
+Found a vulnerability? See [SECURITY.md](./SECURITY.md). Do not open a
+public issue for security reports.
+
+## License
+
+Apache License 2.0 — see [LICENSE](./LICENSE).

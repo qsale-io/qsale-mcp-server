@@ -8,23 +8,24 @@ Flow:
   2. User reviews diff in chat, says OK.
   3. `apply_page_update(proposal_id)` reads from this store and writes via API.
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
 @dataclass
 class Proposal:
     id: str
-    kind: str                       # 'page_update', etc.
-    target_id: str                  # row UUID being modified
-    fields: dict[str, Any]          # patch payload
-    before: dict[str, Any]          # current values of the same keys (for diff display)
+    kind: str  # 'page_update', etc.
+    target_id: str  # row UUID being modified
+    fields: dict[str, Any]  # patch payload
+    before: dict[str, Any]  # current values of the same keys (for diff display)
     reason: str
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 _STORE: dict[str, Proposal] = {}
