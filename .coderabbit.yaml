@@ -1,0 +1,58 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/getting-started/configure-coderabbit
+#
+# Reviews are aggressive: drafts included, assertive tone, walkthrough always
+# shown, fluff (poems) disabled. The goal is to surface as many concrete
+# suggestions as possible on every PR — including small fixups.
+
+language: en
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+
+  # Hammer away on every PR, including drafts.
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: true
+    base_branches:
+      - master
+      - main
+
+  # Cover Python + config + workflow files.
+  path_filters:
+    - '!**/*.lock'
+    - '!**/*.svg'
+    - '!**/*.png'
+    - '!.venv/**'
+    - '!dist/**'
+
+  # Per-path instructions tighten review for tool wrappers — they are mostly
+  # thin REST proxies and reviewer should focus on field-whitelist and
+  # propose/apply parity, not generic "consider extracting a method" noise.
+  path_instructions:
+    - path: 'qa_mcp/tools.py'
+      instructions: >
+        Focus on input-field whitelists, propose/apply pairing, parity with the
+        backend REST contract, and error handling. Do not suggest refactoring
+        the thin-wrapper pattern — that is intentional for readability and
+        easy diff review.
+    - path: 'qa_mcp/server.py'
+      instructions: >
+        Focus on tool docstrings (they are surfaced verbatim to the LLM client)
+        and parameter typing. Avoid suggestions about renaming tools; renames
+        are breaking changes for users with stored `.mcp.json` configurations.
+    - path: 'tests/**'
+      instructions: >
+        Verify assertions actually exercise the propose/apply round-trip
+        and that mocks return the same shape as the QSale REST API.
+
+chat:
+  auto_reply: true
