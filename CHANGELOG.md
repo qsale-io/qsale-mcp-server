@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-05
+
 ### Added
 
 - `propose / apply_promotion_prolong` — extends an active promotion's
