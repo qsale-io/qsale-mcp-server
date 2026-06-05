@@ -1669,3 +1669,350 @@ def list_products(
 def get_product(client: QsaleClient, product_id: str) -> dict[str, Any]:
     """Get a single product by UUID. Returns full detail incl. data, images, attachments."""
     return client.get(f'/api/products/{product_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-4 Dictionary write tools
+# ---------------------------------------------------------------------------
+
+ALLOWED_DICTIONARY_CREATE_FIELDS = {
+    'name',
+    'description',
+    'data',
+    'allowed_segment_models',
+}
+
+REQUIRED_DICTIONARY_CREATE_FIELDS = {'name'}
+
+
+def propose_dictionary_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Dictionary creation for explicit approval. Does NOT write.
+
+    Required fields: name. Optional: description, data (dict),
+    allowed_segment_models (list of SegmentModel UUIDs — controls which segment
+    types can link this dictionary's items). After the user OKs, call
+    apply_dictionary_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_DICTIONARY_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_DICTIONARY_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_DICTIONARY_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('dictionary_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE Dictionary',
+            'after': fields,
+        },
+    }
+
+
+def apply_dictionary_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Dictionary creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'dictionary_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not dictionary_create')
+    return client.post('/api/dictionaries/', json=p.fields)
+
+
+def propose_dictionary_delete(
+    client: QsaleClient,
+    dictionary_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Dictionary deletion for explicit approval. Does NOT write.
+
+    Fetches current state for diff. API will 400 if items are still in use; that
+    error is proxied at apply time. After the user OKs, call
+    apply_dictionary_delete(proposal_id).
+    """
+    current = get_dictionary(client, dictionary_id)
+    before = {
+        'name': current.get('name'),
+        'description': current.get('description'),
+        'allowed_segment_models': current.get('allowed_segment_models'),
+    }
+    p = proposals.register('dictionary_delete', dictionary_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'dictionary_id': dictionary_id,
+        'reason': reason,
+        'summary': {
+            'action': 'DELETE Dictionary',
+            'before': before,
+        },
+    }
+
+
+def apply_dictionary_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Dictionary deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'dictionary_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not dictionary_delete')
+    return client.delete(f'/api/dictionaries/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-5 SegmentProperty write tools
+# ---------------------------------------------------------------------------
+
+ALLOWED_SEGMENT_PROPERTY_CREATE_FIELDS = {
+    'model',
+    'name',
+    'slug',
+    'group',
+    'field',
+    'path',
+    'type',
+    'widget',
+    'parent',
+    'remote_model',
+    'dictionary',
+    'search_weight',
+    'is_editable',
+    'is_enum',
+    'is_filter',
+    'is_many',
+    'is_required',
+    'is_segment_filter',
+    'is_visible',
+    'is_readable',
+    'is_batch_upload',
+    'is_selector',
+    'data',
+    'sort',
+}
+
+REQUIRED_SEGMENT_PROPERTY_CREATE_FIELDS = {'model', 'name', 'type'}
+
+ALLOWED_SEGMENT_PROPERTY_UPDATE_FIELDS = ALLOWED_SEGMENT_PROPERTY_CREATE_FIELDS - {'model'}
+
+
+def propose_segment_property_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentProperty creation for explicit approval. Does NOT write.
+
+    Required fields: model (SegmentModel UUID), name, type. Optional: slug, group,
+    field (default 'data'), path, widget, parent (UUID for child property),
+    remote_model, dictionary (UUID linking enum choices to a Dictionary),
+    is_* flags, data, sort. After the user OKs, call
+    apply_segment_property_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_SEGMENT_PROPERTY_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_SEGMENT_PROPERTY_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_SEGMENT_PROPERTY_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('segment_property_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE SegmentProperty',
+            'after': fields,
+        },
+    }
+
+
+def apply_segment_property_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentProperty creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_property_create':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_create')
+    return client.post('/api/segment-properties/', json=p.fields)
+
+
+def propose_segment_property_update(
+    client: QsaleClient,
+    property_id: str,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentProperty update for explicit approval. Does NOT write.
+
+    Sends only the keys in `fields` as a PATCH. Use this to retype a property
+    (e.g. flip widget=enum / type=str → widget='' / type=dict when introducing
+    a dictionary-backed brand). `model` cannot be changed via this path.
+    """
+    bad = set(fields) - ALLOWED_SEGMENT_PROPERTY_UPDATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. Allowed: {sorted(ALLOWED_SEGMENT_PROPERTY_UPDATE_FIELDS)}'
+        )
+    current = get_segment_property(client, property_id)
+    before = {k: current.get(k) for k in fields}
+    p = proposals.register('segment_property_update', property_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'property_id': property_id,
+        'reason': reason,
+        'summary': {
+            'action': 'UPDATE SegmentProperty',
+            'before': before,
+            'after': fields,
+        },
+    }
+
+
+def apply_segment_property_update(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentProperty update. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_property_update':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_update')
+    return client.patch(f'/api/segment-properties/{p.target_id}/', json=p.fields)
+
+
+def propose_segment_property_delete(
+    client: QsaleClient,
+    property_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentProperty deletion for explicit approval. Does NOT write."""
+    current = get_segment_property(client, property_id)
+    before = {
+        'name': current.get('name'),
+        'slug': current.get('slug'),
+        'model': current.get('model'),
+        'type': current.get('type'),
+        'widget': current.get('widget'),
+    }
+    p = proposals.register('segment_property_delete', property_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'property_id': property_id,
+        'reason': reason,
+        'summary': {
+            'action': 'DELETE SegmentProperty',
+            'before': before,
+        },
+    }
+
+
+def apply_segment_property_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentProperty deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_property_delete':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_delete')
+    return client.delete(f'/api/segment-properties/{p.target_id}/')
+
+
+# ---------------------------------------------------------------------------
+# §FR-6 SegmentPropertyChoice tools
+# ---------------------------------------------------------------------------
+
+ALLOWED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS = {
+    'segment_property',
+    'label',
+    'value',
+    'is_published',
+    'sort',
+}
+
+REQUIRED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS = {'segment_property', 'value'}
+
+
+def list_segment_property_choices(
+    client: QsaleClient,
+    segment_property_id: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """List SegmentPropertyChoice rows. Filter by parent property UUID."""
+    params: dict[str, Any] = {'limit': limit}
+    if segment_property_id:
+        params['segment_property'] = segment_property_id
+    res = client.get('/api/segment-property-choices/', params=params)
+    rows = res.get('results') if isinstance(res, dict) else res
+    return rows or []
+
+
+def propose_segment_property_choice_create(
+    client: QsaleClient,
+    fields: dict[str, Any],
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentPropertyChoice creation for explicit approval. Does NOT write.
+
+    Required fields: segment_property (UUID of parent property), value.
+    Optional: label (display text, defaults to value), is_published, sort.
+    After the user OKs, call apply_segment_property_choice_create(proposal_id).
+    """
+    bad = set(fields) - ALLOWED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS
+    if bad:
+        raise ValueError(
+            f'Field(s) not in whitelist: {sorted(bad)}. '
+            f'Allowed: {sorted(ALLOWED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS)}'
+        )
+    missing = REQUIRED_SEGMENT_PROPERTY_CHOICE_CREATE_FIELDS - set(fields)
+    if missing:
+        raise ValueError(f'Missing required field(s) for create: {sorted(missing)}')
+
+    p = proposals.register('segment_property_choice_create', '', fields, {}, reason)
+    return {
+        'proposal_id': p.id,
+        'reason': reason,
+        'summary': {
+            'action': 'CREATE SegmentPropertyChoice',
+            'after': fields,
+        },
+    }
+
+
+def apply_segment_property_choice_create(client: QsaleClient, proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentPropertyChoice creation. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_property_choice_create':
+        raise ValueError(
+            f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_create'
+        )
+    return client.post('/api/segment-property-choices/', json=p.fields)
+
+
+def propose_segment_property_choice_delete(
+    client: QsaleClient,
+    choice_id: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a SegmentPropertyChoice deletion for explicit approval. Does NOT write."""
+    current = client.get(f'/api/segment-property-choices/{choice_id}/')
+    before = {
+        'segment_property': current.get('segment_property'),
+        'value': current.get('value'),
+        'label': current.get('label'),
+    }
+    p = proposals.register('segment_property_choice_delete', choice_id, {}, before, reason)
+    return {
+        'proposal_id': p.id,
+        'choice_id': choice_id,
+        'reason': reason,
+        'summary': {
+            'action': 'DELETE SegmentPropertyChoice',
+            'before': before,
+        },
+    }
+
+
+def apply_segment_property_choice_delete(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentPropertyChoice deletion. Single-use."""
+    p = proposals.pop(proposal_id)
+    if p.kind != 'segment_property_choice_delete':
+        raise ValueError(
+            f'Proposal {proposal_id} is kind={p.kind!r}, not segment_property_choice_delete'
+        )
+    return client.delete(f'/api/segment-property-choices/{p.target_id}/')

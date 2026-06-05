@@ -933,6 +933,135 @@ def get_product(product_id: str) -> dict[str, Any]:
     return t.get_product(_c(), product_id)
 
 
+# ---------------------------------------------------------------------------
+# Dictionary write tools
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_dictionary_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a Dictionary creation for explicit approval. Does NOT write.
+
+    Required fields: name. Optional: description, data (dict),
+    allowed_segment_models (list of SegmentModel UUIDs). After the user OKs,
+    call apply_dictionary_create(proposal_id).
+    """
+    return t.propose_dictionary_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_dictionary_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged Dictionary creation. Use only after explicit user OK."""
+    return t.apply_dictionary_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_dictionary_delete(dictionary_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a Dictionary deletion for explicit approval. Does NOT write."""
+    return t.propose_dictionary_delete(_c(), dictionary_id, reason)
+
+
+@srv.tool()
+def apply_dictionary_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Dictionary deletion. Use only after explicit user OK."""
+    return t.apply_dictionary_delete(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# SegmentProperty write tools
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def propose_segment_property_create(fields: dict[str, Any], reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentProperty creation for explicit approval. Does NOT write.
+
+    Required fields: model (SegmentModel UUID), name, type. Optional: slug,
+    group, field (default 'data'), path, widget, parent (UUID for child
+    property in a dict-typed wrapper), remote_model, dictionary, is_* flags,
+    data, sort. After the user OKs, call apply_segment_property_create.
+    """
+    return t.propose_segment_property_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_segment_property_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentProperty creation. Use only after explicit user OK."""
+    return t.apply_segment_property_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_property_update(
+    property_id: str, fields: dict[str, Any], reason: str = ''
+) -> dict[str, Any]:
+    """Stage a SegmentProperty PATCH for explicit approval. Does NOT write.
+
+    Sends only the keys in `fields`. Useful when reshaping a property — e.g.
+    flipping `type=str/widget=enum` to `type=dict/widget=''` when introducing
+    a dictionary-backed child schema. `model` cannot be changed.
+    """
+    return t.propose_segment_property_update(_c(), property_id, fields, reason)
+
+
+@srv.tool()
+def apply_segment_property_update(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentProperty PATCH. Use only after explicit user OK."""
+    return t.apply_segment_property_update(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_property_delete(property_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentProperty deletion for explicit approval. Does NOT write."""
+    return t.propose_segment_property_delete(_c(), property_id, reason)
+
+
+@srv.tool()
+def apply_segment_property_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentProperty deletion. Use only after explicit user OK."""
+    return t.apply_segment_property_delete(_c(), proposal_id)
+
+
+# ---------------------------------------------------------------------------
+# SegmentPropertyChoice tools
+# ---------------------------------------------------------------------------
+
+@srv.tool()
+def list_segment_property_choices(
+    segment_property_id: str | None = None, limit: int = 200
+) -> list[dict[str, Any]]:
+    """List SegmentPropertyChoice rows. Filter by parent property UUID."""
+    return t.list_segment_property_choices(_c(), segment_property_id, limit)
+
+
+@srv.tool()
+def propose_segment_property_choice_create(
+    fields: dict[str, Any], reason: str = ''
+) -> dict[str, Any]:
+    """Stage a SegmentPropertyChoice creation for explicit approval. Does NOT write.
+
+    Required fields: segment_property (UUID of parent property), value. Optional:
+    label (display text, defaults to value), is_published, sort. After the user
+    OKs, call apply_segment_property_choice_create.
+    """
+    return t.propose_segment_property_choice_create(_c(), fields, reason)
+
+
+@srv.tool()
+def apply_segment_property_choice_create(proposal_id: str) -> dict[str, Any]:
+    """Apply a previously-staged SegmentPropertyChoice creation. Use only after explicit user OK."""
+    return t.apply_segment_property_choice_create(_c(), proposal_id)
+
+
+@srv.tool()
+def propose_segment_property_choice_delete(choice_id: str, reason: str = '') -> dict[str, Any]:
+    """Stage a SegmentPropertyChoice deletion for explicit approval. Does NOT write."""
+    return t.propose_segment_property_choice_delete(_c(), choice_id, reason)
+
+
+@srv.tool()
+def apply_segment_property_choice_delete(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged SegmentPropertyChoice deletion. Use only after explicit user OK."""
+    return t.apply_segment_property_choice_delete(_c(), proposal_id)
+
+
 def main() -> None:
     srv.run()
 
