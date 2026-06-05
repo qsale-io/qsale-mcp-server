@@ -1186,6 +1186,30 @@ def get_promotion_code(code_id: str) -> dict[str, Any]:
     return t.get_promotion_code(_c(), code_id)
 
 
+@srv.tool()
+def propose_promotion_prolong(promotion_id: str, active_until: str, reason: str = '') -> dict[str, Any]:
+    """Stage a Promotion prolongation for explicit approval. Does NOT write.
+
+    Extends the promotion's end date. The backend accepts this only when the
+    promotion is in the ACTIVE state and has a finite active_until.
+
+    active_until: new end date, ISO 8601 (YYYY-MM-DD or full datetime), must be
+    in the future and greater than the current active_until. After the user
+    OKs, call apply_promotion_prolong(proposal_id).
+    """
+    return t.propose_promotion_prolong(_c(), promotion_id, active_until, reason)
+
+
+@srv.tool()
+def apply_promotion_prolong(proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Promotion prolongation. Use only after explicit user OK.
+
+    Returns None on success (backend responds 201 empty). 4xx is proxied as
+    QsaleError including the backend validation message.
+    """
+    return t.apply_promotion_prolong(_c(), proposal_id)
+
+
 def main() -> None:
     srv.run()
 
