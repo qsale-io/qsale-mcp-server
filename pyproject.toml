@@ -1,6 +1,6 @@
 [project]
 name = "qsale-mcp"
-version = "0.3.0"
+version = "0.2.1"
 description = "Model Context Protocol server for the QSale platform — catalog, content, segments, dictionaries, mailings, and admin tasks via console.qsale.io REST."
 readme = "README.md"
 license = { text = "Apache-2.0" }
