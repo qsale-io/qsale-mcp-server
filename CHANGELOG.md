@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+
+- `propose / apply_promotion_prolong` — extends an active promotion's
+  `active_until` date. Backed by `POST /api/promotions/<id>/prolong/`.
+  Backend rejects with 400 if the promotion is not in the ACTIVE state or
+  has no finite end date; the validation message is proxied verbatim.
+
 ## [0.2.0] - 2026-06-05
 
 ### Added

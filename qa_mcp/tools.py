@@ -2283,11 +2283,63 @@ def get_promotion_code(client: QsaleClient, code_id: str) -> dict[str, Any]:
     return client.get(f'/api/promotion-codes/{code_id}/')
 
 
+def propose_promotion_prolong(
+    client: QsaleClient,
+    promotion_id: str,
+    active_until: str,
+    reason: str = '',
+) -> dict[str, Any]:
+    """Stage a Promotion prolongation for explicit approval. Does NOT write.
+
+    Extends the promotion's end date. The backend accepts this action only when
+    the promotion is in the ACTIVE state and already has a finite ``active_until``
+    (perpetual promotions cannot be prolonged — they have no end to push).
+
+    Args:
+        promotion_id: target Promotion UUID.
+        active_until: new end date in ISO 8601 format (``YYYY-MM-DD`` or full
+            datetime). Must be in the future and greater than the current
+            ``active_until``.
+        reason: optional human-readable rationale for the change.
+
+    After the user OKs, call ``apply_promotion_prolong(proposal_id)``.
+    """
+    current = get_promotion(client, promotion_id)
+    before = {'active_until': current.get('active_until'), 'state': current.get('state')}
+    fields = {'active_until': active_until}
+    p = proposals.register('promotion_prolong', promotion_id, fields, before, reason)
+    return {
+        'proposal_id': p.id,
+        'promotion_id': promotion_id,
+        'reason': reason,
+        'summary': {
+            'action': 'PROLONG Promotion',
+            'before': before,
+            'after': fields,
+        },
+    }
+
+
+def apply_promotion_prolong(client: QsaleClient, proposal_id: str) -> dict[str, Any] | None:
+    """Apply a previously-staged Promotion prolongation. Single-use.
+
+    Hits ``POST /api/promotions/<id>/prolong/``; returns ``None`` on success
+    (the backend responds 201 with an empty body). Any 4xx is proxied as
+    ``QsaleError`` so the caller sees the validation message from the API
+    (e.g. "Prolongation allow only for state ACTIVE").
+    """
+    p = proposals.pop(proposal_id)
+    if p.kind != 'promotion_prolong':
+        raise ValueError(f'Proposal {proposal_id} is kind={p.kind!r}, not promotion_prolong')
+    return client.post(f'/api/promotions/{p.target_id}/prolong/', json=p.fields)
+
+
 # Register promotion apply handlers in the bulk_apply registry (forward refs:
 # the registry is defined earlier in the module before these functions exist).
 _BULK_APPLY_REGISTRY.update(
     {
         'promotion_create': apply_promotion_create,
         'promotion_update': apply_promotion_update,
+        'promotion_prolong': apply_promotion_prolong,
     }
 )
